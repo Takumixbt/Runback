@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+/**
+ * One palette for the app and the exported video.
+ *
+ * `frame.ts` paints the clip on a bare canvas with no access to CSS, so these values
+ * are duplicated there as constants. They have to stay in step or a clip stops looking
+ * like the page it came from.
+ */
+@theme {
+  --color-ground: #0b0c0f;
+  --color-surface: #14161b;
+  --color-raised: #1b1e25;
+  --color-line: #242830;
+  --color-line-2: #333944;
+
+  --color-tx: #e8ecf2;
+  --color-tx-2: #98a2b0;
+  --color-tx-3: #6b7484;
+
+  --color-mint: #35d399;
+  --color-signal: #ff5a5a;
+  --color-amber: #ffb224;
+
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--color-ground);
+  color: var(--color-tx);
+  font-family: var(--font-mono);
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+}
+
+/* Digits in a column must line up, everywhere. There is no exception in this app. */
+* {
+  font-variant-numeric: tabular-nums;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--color-amber);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: var(--color-amber);
+  color: var(--color-ground);
+}
+
+/* The chart library paints its own attribution link; the export must not include it. */
+#tv-attr-logo {
+  display: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
