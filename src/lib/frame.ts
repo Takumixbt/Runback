@@ -17,17 +17,23 @@
 import { type Layout } from "@/lib/clip";
 import { pct, price, shortAddress, signedUsd, usdCompact } from "@/lib/format";
 
-const MONO = 'ui-monospace, "JetBrains Mono", "SF Mono", monospace';
+/**
+ * Inter, which is the face Hyperliquid ships under the name "OurFont".
+ *
+ * Canvas cannot wait for a webfont, so the export is started only after the page has one:
+ * `document.fonts.ready` is awaited in `export.ts` before the first frame is painted.
+ */
+const FACE = 'Inter, system-ui, "Segoe UI", Roboto, sans-serif';
 
-/** Mirrors the `@theme` block in globals.css. The two must stay in step. */
-const GROUND = "#0b0c0f";
-const TX = "#e8ecf2";
-const TX2 = "#98a2b0";
-const TX3 = "#6b7484";
-const MINT = "#35d399";
-const SIGNAL = "#ff5a5a";
-const AMBER = "#ffb224";
-const LINE = "#242830";
+/** Hyperliquid's own tokens, mirrored from the `@theme` block in globals.css. */
+const GROUND = "#0f1a1e";
+const TX = "#f6fefd";
+const TX2 = "#9aa3a4";
+const TX3 = "#9aa3a4";
+const MINT = "#50d2c1";
+const SIGNAL = "#ed7088";
+const AMBER = "#97fce4";
+const LINE = "#273035";
 
 export interface PaintFill {
   isBuy: boolean;
@@ -79,7 +85,7 @@ function draw(
   o: TextOptions,
 ): number {
   ctx.save();
-  ctx.font = `${o.weight ?? 400} ${o.size}px ${MONO}`;
+  ctx.font = `${o.weight ?? 400} ${o.size}px ${FACE}`;
   ctx.fillStyle = o.color ?? TX;
   ctx.textAlign = o.align ?? "left";
   ctx.textBaseline = "alphabetic";
@@ -162,7 +168,7 @@ function paintHeader(ctx: CanvasRenderingContext2D, s: FrameState): void {
   const marketSize = 54 * t;
   const w = draw(ctx, s.label, pad, baseline, {
     size: marketSize,
-    weight: 700,
+    weight: 500,
     tracking: -1.5 * t,
   });
 
@@ -171,7 +177,7 @@ function paintHeader(ctx: CanvasRenderingContext2D, s: FrameState): void {
   const badge = s.side;
   const badgeSize = 20 * t;
   ctx.save();
-  ctx.font = `700 ${badgeSize}px ${MONO}`;
+  ctx.font = `500 ${badgeSize}px ${FACE}`;
   const bw = ctx.measureText(badge).width + 18 * t;
   const bh = badgeSize + 14 * t;
   const bx = pad + w + 18 * t;
@@ -182,7 +188,7 @@ function paintHeader(ctx: CanvasRenderingContext2D, s: FrameState): void {
   ctx.restore();
   draw(ctx, badge, bx + 9 * t, baseline - 3 * t, {
     size: badgeSize,
-    weight: 700,
+    weight: 500,
     color: sideColor(s.side),
     tracking: 1.5 * t,
   });
@@ -190,7 +196,7 @@ function paintHeader(ctx: CanvasRenderingContext2D, s: FrameState): void {
   if (s.liquidated) {
     const lx = bx + bw + 10 * t;
     ctx.save();
-    ctx.font = `700 ${badgeSize}px ${MONO}`;
+    ctx.font = `500 ${badgeSize}px ${FACE}`;
     const lw = ctx.measureText("LIQUIDATED").width + 18 * t;
     ctx.fillStyle = AMBER;
     roundRect(ctx, lx, by, lw, bh, 4 * t);
@@ -198,7 +204,7 @@ function paintHeader(ctx: CanvasRenderingContext2D, s: FrameState): void {
     ctx.restore();
     draw(ctx, "LIQUIDATED", lx + 9 * t, baseline - 3 * t, {
       size: badgeSize,
-      weight: 700,
+      weight: 500,
       color: GROUND,
       tracking: 1.5 * t,
     });
@@ -270,7 +276,7 @@ function paintStats(ctx: CanvasRenderingContext2D, s: FrameState): void {
     });
     draw(ctx, cell.value, cx, cy + 76 * t, {
       size: 38 * t,
-      weight: 700,
+      weight: 500,
       color: cell.color,
       tracking: -1 * t,
     });
@@ -298,7 +304,7 @@ function paintFills(ctx: CanvasRenderingContext2D, s: FrameState): void {
     const text = `${f.liquidation ? "LIQUIDATED · " : ""}${f.dir} · ${usdCompact(f.usd)} @ ${price(f.px)}`;
 
     ctx.save();
-    ctx.font = `700 ${size}px ${MONO}`;
+    ctx.font = `500 ${size}px ${FACE}`;
     const tw = ctx.measureText(text).width;
     ctx.restore();
 
@@ -321,7 +327,7 @@ function paintFills(ctx: CanvasRenderingContext2D, s: FrameState): void {
 
     draw(ctx, text, x + 14 * t, y + bh - 13 * t, {
       size,
-      weight: 700,
+      weight: 500,
       color,
       alpha: f.alpha,
     });
@@ -352,7 +358,7 @@ function paintOutro(ctx: CanvasRenderingContext2D, s: FrameState): void {
 
   draw(ctx, s.liquidated ? "LIQUIDATED" : net >= 0 ? "CLOSED" : "CLOSED", cx, cy - 96 * t, {
     size: 26 * t,
-    weight: 700,
+    weight: 400,
     color: s.liquidated ? AMBER : TX3,
     align: "center",
     tracking: 6 * t,
@@ -377,7 +383,7 @@ function paintOutro(ctx: CanvasRenderingContext2D, s: FrameState): void {
 
   draw(ctx, "runback", cx, L.h - L.pad - 8 * t, {
     size: 22 * t,
-    weight: 700,
+    weight: 500,
     color: TX3,
     align: "center",
     tracking: 5 * t,

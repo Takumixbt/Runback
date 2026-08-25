@@ -7,7 +7,7 @@ export const metadata: Metadata = {
     "Paste a Hyperliquid wallet, browse its trades, replay one as a video you can post.",
   openGraph: {
     title: "Runback",
-    description: "Run it back. Every trade on Hyperliquid, replayed.",
+    description: "Run it back. Every position on Hyperliquid, replayed.",
     type: "website",
   },
 };
@@ -18,11 +18,16 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
+        {/*
+          Hyperliquid ships Inter under the name "OurFont", so this is literally their
+          typeface. Weights kept to 400/500: their interface is almost entirely regular,
+          including its titles, and matching that matters more than any colour here.
+        */}
         <link
           rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap"
         />
-        {/* The API this app reads is called from the browser, so warm the connection early. */}
+        {/* Read from the browser, so warm the connection before anything asks for it. */}
         <link rel="preconnect" href="https://api.hyperliquid.xyz" />
       </head>
       <body>{children}</body>

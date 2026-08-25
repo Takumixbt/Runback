@@ -19,19 +19,18 @@ import {
   type Episode,
   type Replay as ReplayData,
 } from "@/lib/episodes";
-import { duration, pct, price, shortAddress, signedUsd, usdCompact, when } from "@/lib/format";
+import { duration, pct, shortAddress, signedUsd, usdCompact, when } from "@/lib/format";
 import { Replay } from "./Replay";
 
-const MINT = "#35d399";
-const SIGNAL = "#ff5a5a";
-const AMBER = "#ffb224";
+const UP = "#50d2c1";
+const DOWN = "#ed7088";
+const FLIPPED = "#97fce4";
 
-/** Windows offered, in days. Anything past a week is mostly undrawable anyway. */
 const SPANS = [
   { label: "24h", days: 1 },
   { label: "7d", days: 7 },
   { label: "30d", days: 30 },
-  { label: "all", days: 3650 },
+  { label: "All", days: 3650 },
 ] as const;
 
 type Phase =
@@ -49,53 +48,55 @@ export function WalletBrowser({ initial }: { initial?: string }) {
   const [replay, setReplay] = useState<ReplayData | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
+  /** The address the current results belong to, which is not always what is in the box. */
+  const loaded = useRef<string>("");
 
-  // Market names are the same for everyone and never change mid-session.
   useEffect(() => {
     fetchMarkets()
       .then(setMarkets)
       .catch(() => setMarkets(null));
   }, []);
 
-  const load = useCallback(
-    async (who: string, days: number) => {
-      abort.current?.abort();
-      const ctl = new AbortController();
-      abort.current = ctl;
+  const load = useCallback(async (who: string, days: number) => {
+    abort.current?.abort();
+    const ctl = new AbortController();
+    abort.current = ctl;
+    loaded.current = who;
 
-      setReplay(null);
-      setEps([]);
-      setPhase({ k: "loading", note: "reading fills" });
+    setReplay(null);
+    setEps([]);
+    setPhase({ k: "loading", note: "reading fills" });
 
-      const now = Date.now();
-      try {
-        const raw = await fetchFills(who, now - days * 86_400_000, now, {
-          signal: ctl.signal,
-          onPage: (total) => setPhase({ k: "loading", note: `${total} fills` }),
-        });
-        if (ctl.signal.aborted) return;
-        setEps(segment(raw));
-        setPhase({ k: "ready" });
-      } catch (err) {
-        if (ctl.signal.aborted) return;
-        setPhase({
-          k: "error",
-          message:
-            err instanceof Error && err.message.includes("429")
-              ? "Hyperliquid rate-limited this browser. Wait a minute and try again."
-              : "Could not reach Hyperliquid. Check the address and try again.",
-        });
-      }
-    },
-    [],
-  );
+    const now = Date.now();
+    try {
+      const raw = await fetchFills(who, now - days * 86_400_000, now, {
+        signal: ctl.signal,
+        onPage: (total) => setPhase({ k: "loading", note: `${total} fills` }),
+      });
+      if (ctl.signal.aborted) return;
+      setEps(segment(raw));
+      setPhase({ k: "ready" });
+    } catch (err) {
+      if (ctl.signal.aborted) return;
+      setPhase({
+        k: "error",
+        message:
+          err instanceof Error && err.message.includes("429")
+            ? "Hyperliquid rate-limited this browser. Give it a minute."
+            : "Could not reach Hyperliquid. Check the address and try again.",
+      });
+    }
+  }, []);
 
   const submit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
-      const who = address.trim();
+      const who = address.trim().toLowerCase();
       if (!isAddress(who)) {
-        setPhase({ k: "error", message: "That is not a Hyperliquid address. It starts 0x and is 42 characters." });
+        setPhase({
+          k: "error",
+          message: "That is not a Hyperliquid address. It starts 0x and is 42 characters.",
+        });
         return;
       }
       window.history.replaceState(null, "", `/w/${who}`);
@@ -105,11 +106,11 @@ export function WalletBrowser({ initial }: { initial?: string }) {
   );
 
   /**
-   * Draw one episode.
+   * Draw one position.
    *
-   * Deliberately on click and not up front. Every row needs its own candle call at its
-   * own interval, so building all of them would be one request per row for charts nobody
-   * asked to see. The row already knows whether it CAN be drawn; this is what draws it.
+   * On click, not up front. Every row wants its own candle call at its own interval, so
+   * building all of them would be one request per row for charts nobody asked to see. The
+   * row already knows whether it CAN be drawn; this is what draws it.
    */
   const open = useCallback(
     async (ep: Episode) => {
@@ -126,7 +127,7 @@ export function WalletBrowser({ initial }: { initial?: string }) {
           return;
         }
         setReplay(
-          buildReplay(ep, bars, labelFor(ep.coin, markets), address.trim(), w.interval),
+          buildReplay(ep, bars, labelFor(ep.coin, markets), loaded.current, w.interval),
         );
       } catch {
         setPhase({ k: "error", message: "Could not load candles for that trade." });
@@ -134,94 +135,115 @@ export function WalletBrowser({ initial }: { initial?: string }) {
         setOpening(null);
       }
     },
-    [markets, address],
+    [markets],
   );
 
   useEffect(() => {
-    if (initial && isAddress(initial)) void load(initial, span.days);
-    // Only on mount, and only when the route carried an address.
+    if (initial && isAddress(initial)) void load(initial.toLowerCase(), SPANS[1].days);
+    // Mount only, and only when the route carried an address.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ------------------------------------------------------------------ ui */
-
   if (replay) {
     return (
-      <div className="flex flex-col gap-4">
+      <div className="hl-fade flex flex-col gap-4">
         <button
           onClick={() => setReplay(null)}
-          className="self-start text-xs text-tx-3 hover:text-tx"
+          className="flex w-fit items-center gap-1.5 text-[12px] text-muted transition-colors duration-[120ms] hover:text-tx"
         >
-          ← every trade by {shortAddress(address.trim(), 6)}
+          <span aria-hidden>←</span> all positions
         </button>
         <Replay data={replay} />
       </div>
     );
   }
 
+  const busy = phase.k === "loading";
+
   return (
-    <div className="flex flex-col gap-6">
-      <form onSubmit={submit} className="flex flex-col gap-3">
+    <div className="flex flex-col gap-5">
+      <form onSubmit={submit} className="flex flex-col gap-2.5">
         <div className="flex flex-col gap-2 sm:flex-row">
-          <input
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            placeholder="0x… a Hyperliquid address"
-            spellCheck={false}
-            autoComplete="off"
-            className="min-w-0 flex-1 rounded-sm border border-line bg-surface px-3 py-2.5 text-sm text-tx placeholder:text-tx-3 focus:border-line-2"
-          />
+          <div className="flex h-[38px] flex-1 items-center rounded-[8px] border border-border px-3.5 transition-colors duration-[120ms] focus-within:border-muted hover:border-muted">
+            <input
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="0x…"
+              spellCheck={false}
+              autoComplete="off"
+              aria-label="Hyperliquid address"
+              className="min-w-0 flex-1 bg-transparent text-[12px] text-tx outline-none placeholder:text-faint"
+            />
+          </div>
           <button
             type="submit"
-            className="rounded-sm bg-tx px-5 py-2.5 text-sm font-bold text-ground hover:opacity-90"
+            disabled={busy}
+            className="h-[38px] rounded-[8px] bg-accent-soft px-6 text-[12px] text-accent-text transition-[filter,transform] duration-[120ms] hover:brightness-105 active:scale-[0.99] disabled:bg-accent-dim disabled:text-muted"
           >
-            run it back
+            {busy ? "Loading" : "Run it back"}
           </button>
         </div>
 
-        <div className="flex items-center gap-1 text-xs">
-          {SPANS.map((s) => (
-            <button
-              key={s.label}
-              type="button"
-              onClick={() => {
-                setSpan(s);
-                const who = address.trim();
-                if (isAddress(who)) void load(who, s.days);
-              }}
-              className={`rounded-sm px-2 py-1 ${
-                span.label === s.label ? "bg-raised text-tx" : "text-tx-3 hover:text-tx-2"
-              }`}
-            >
-              {s.label}
-            </button>
-          ))}
-          <span className="ml-2 text-tx-3">
-            older trades load, but most cannot be drawn. Hyperliquid only keeps 5,000 bars
-            per interval
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-0.5 rounded-[8px] border border-border p-0.5">
+            {SPANS.map((s) => (
+              <button
+                key={s.label}
+                type="button"
+                onClick={() => {
+                  setSpan(s);
+                  if (isAddress(loaded.current)) void load(loaded.current, s.days);
+                }}
+                className={`rounded-[6px] px-2.5 py-1 text-[11px] transition-colors duration-[120ms] ${
+                  span.label === s.label
+                    ? "bg-inset text-tx"
+                    : "text-faint hover:text-muted"
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+          <span className="text-[11px] text-faint">
+            Hyperliquid keeps 5,000 bars per interval, so older trades load but many cannot
+            be drawn.
           </span>
         </div>
       </form>
 
-      {phase.k === "loading" && (
-        <div className="text-sm text-tx-3">
-          <span className="inline-block animate-pulse">▍</span> {phase.note}…
-        </div>
-      )}
+      {busy && <TableSkeleton note={phase.note} />}
 
       {phase.k === "error" && (
-        <div className="rounded-sm border border-signal/40 bg-signal/5 px-3 py-2 text-sm text-signal">
+        <div className="hl-fade rounded-[8px] border border-error/40 bg-error/10 px-3.5 py-2.5 text-[12px] text-error">
           {phase.message}
         </div>
       )}
 
       {phase.k === "ready" && eps.length === 0 && (
-        <div className="text-sm text-tx-3">
+        <p className="rounded-[8px] border border-border px-4 py-5 text-[12px] text-faint">
           No fills in that window. Try a wider span.
-        </div>
+        </p>
       )}
 
-      {eps.length > 0 && <EpisodeTable eps={eps} markets={markets} onOpen={open} opening={opening} />}
+      {!busy && eps.length > 0 && (
+        <EpisodeTable eps={eps} markets={markets} onOpen={open} opening={opening} />
+      )}
+    </div>
+  );
+}
+
+function TableSkeleton({ note }: { note: string }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2 text-[11px] text-faint">
+        <span className="inline-block h-1.5 w-1.5 animate-[hl-pulse_1.2s_ease-in-out_infinite] rounded-full bg-accent-soft" />
+        {note}
+      </div>
+      <div className="flex flex-col gap-px overflow-hidden rounded-[8px]">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="hl-skeleton h-[42px] rounded-none" />
+        ))}
+      </div>
     </div>
   );
 }
@@ -237,101 +259,104 @@ function EpisodeTable({
   onOpen: (ep: Episode) => void;
   opening: string | null;
 }) {
-  const drawable = eps.filter((e) => pickWindow(e.start, e.end) !== null);
+  const windows = eps.map((e) => pickWindow(e.start, e.end));
+  const drawable = windows.filter(Boolean).length;
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-baseline justify-between text-xs text-tx-3">
+    <div className="hl-fade flex flex-col gap-2">
+      <div className="flex items-baseline justify-between text-[11px] text-faint">
         <span>
-          {eps.length} positions · {drawable.length} replayable
+          {eps.length} position{eps.length === 1 ? "" : "s"} · {drawable} replayable
         </span>
         <span>ranked by what was at stake</span>
       </div>
 
-      <div className="overflow-x-auto border border-line">
-        <table className="w-full min-w-[720px] border-collapse text-sm">
+      <div className="scrollers overflow-x-auto rounded-[8px] border border-border">
+        <table className="w-full min-w-[680px] border-collapse text-[12px]">
           <thead>
-            <tr className="border-b border-line text-[10px] uppercase tracking-widest text-tx-3">
-              <th className="px-3 py-2 text-left font-bold">market</th>
-              <th className="px-3 py-2 text-left font-bold">side</th>
-              <th className="px-3 py-2 text-left font-bold">opened</th>
-              <th className="px-3 py-2 text-right font-bold">held</th>
-              <th className="px-3 py-2 text-right font-bold">size</th>
-              <th className="px-3 py-2 text-right font-bold">net</th>
-              <th className="px-3 py-2 text-right font-bold">return</th>
-              <th className="px-3 py-2 text-left font-bold">replay</th>
+            <tr className="border-b border-border text-[10px] tracking-[0.06em] text-faint">
+              <th className="px-3.5 py-2.5 text-left font-normal">MARKET</th>
+              <th className="px-3.5 py-2.5 text-left font-normal">OPENED</th>
+              <th className="px-3.5 py-2.5 text-right font-normal">HELD</th>
+              <th className="px-3.5 py-2.5 text-right font-normal">SIZE</th>
+              <th className="px-3.5 py-2.5 text-right font-normal">NET</th>
+              <th className="px-3.5 py-2.5 text-right font-normal">RETURN</th>
+              <th className="px-3.5 py-2.5 text-right font-normal"></th>
             </tr>
           </thead>
           <tbody>
-            {eps.map((ep) => {
-              const w = pickWindow(ep.start, ep.end);
+            {eps.map((ep, i) => {
+              const w = windows[i];
               const kind = kindOf(ep.coin, markets);
               const roe = ep.peakNotional > 0 ? ep.net / ep.peakNotional : 0;
+              const tone = ep.side === "LONG" ? UP : ep.side === "SHORT" ? DOWN : FLIPPED;
+              const dead = !w;
+
               return (
                 <tr
                   key={ep.id}
-                  className={`border-b border-line/60 ${w ? "hover:bg-surface" : "opacity-55"}`}
+                  onClick={() => w && onOpen(ep)}
+                  className={`border-b border-divider transition-colors duration-[120ms] last:border-b-0 ${
+                    dead ? "opacity-45" : "cursor-pointer hover:bg-inset/40"
+                  }`}
                 >
-                  <td className="px-3 py-2.5">
-                    <span className="font-bold">{labelFor(ep.coin, markets)}</span>
-                    {kind !== "perp" && (
-                      <span className="ml-1.5 text-[9px] uppercase tracking-widest text-tx-3">
-                        {kind}
+                  <td className="px-3.5 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-tx">{labelFor(ep.coin, markets)}</span>
+                      <span className="text-[10px] tracking-[0.06em]" style={{ color: tone }}>
+                        {ep.side}
                       </span>
-                    )}
+                      {kind !== "perp" && (
+                        <span className="text-[9px] tracking-[0.06em] text-faint">
+                          {kind === "spot" ? "SPOT" : "HIP-3"}
+                        </span>
+                      )}
+                      {ep.liquidated && (
+                        <span className="rounded-[4px] bg-error/15 px-1.5 py-px text-[9px] tracking-[0.06em] text-error">
+                          LIQ
+                        </span>
+                      )}
+                      {ep.open && (
+                        <span className="rounded-[4px] border border-border px-1.5 py-px text-[9px] tracking-[0.06em] text-faint">
+                          OPEN
+                        </span>
+                      )}
+                    </div>
                   </td>
-                  <td className="px-3 py-2.5">
-                    <span
-                      className="text-[10px] font-bold tracking-widest"
-                      style={{
-                        color: ep.side === "LONG" ? MINT : ep.side === "SHORT" ? SIGNAL : AMBER,
-                      }}
-                    >
-                      {ep.side}
-                    </span>
-                    {ep.liquidated && (
-                      <span className="ml-1.5 text-[9px] font-bold tracking-widest text-amber">
-                        LIQ
-                      </span>
-                    )}
-                    {ep.open && (
-                      <span className="ml-1.5 text-[9px] tracking-widest text-tx-3">OPEN</span>
-                    )}
+                  <td className="px-3.5 py-2.5 text-muted">{when(ep.start)}</td>
+                  <td className="px-3.5 py-2.5 text-right text-muted">
+                    {ep.open ? "–" : duration(ep.end - ep.start)}
                   </td>
-                  <td className="px-3 py-2.5 text-tx-2">{when(ep.start)}</td>
-                  <td className="px-3 py-2.5 text-right text-tx-2">
-                    {ep.open ? "—" : duration(ep.end - ep.start)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right text-tx-2">
+                  <td className="px-3.5 py-2.5 text-right text-muted">
                     {usdCompact(ep.peakNotional)}
                   </td>
                   <td
-                    className="px-3 py-2.5 text-right font-bold"
-                    style={{ color: ep.net >= 0 ? MINT : SIGNAL }}
+                    className="px-3.5 py-2.5 text-right"
+                    style={{ color: ep.open ? "#9aa3a48c" : ep.net >= 0 ? UP : DOWN }}
                   >
-                    {ep.open ? "—" : signedUsd(ep.net)}
+                    {ep.open ? "–" : signedUsd(ep.net)}
                   </td>
                   <td
-                    className="px-3 py-2.5 text-right"
-                    style={{ color: roe >= 0 ? MINT : SIGNAL }}
+                    className="px-3.5 py-2.5 text-right"
+                    style={{ color: ep.open ? "#9aa3a48c" : roe >= 0 ? UP : DOWN }}
                   >
-                    {ep.open ? "—" : pct(roe)}
+                    {ep.open ? "–" : pct(roe)}
                   </td>
-                  <td className="px-3 py-2.5">
+                  <td className="whitespace-nowrap px-3.5 py-2.5 text-right">
                     {w ? (
-                      <button
-                        onClick={() => onOpen(ep)}
-                        disabled={opening !== null}
-                        className="rounded-sm border border-line-2 px-2.5 py-1 text-xs hover:border-tx-2 hover:text-tx disabled:opacity-40"
+                      <span
+                        className={`text-[11px] transition-colors duration-[120ms] ${
+                          opening === ep.id ? "text-accent" : "text-faint"
+                        }`}
                       >
-                        {opening === ep.id ? "drawing…" : `${w.bars} × ${w.interval}`}
-                      </button>
+                        {opening === ep.id ? "Drawing…" : `Watch · ${w.bars} ${w.interval}`}
+                      </span>
                     ) : (
                       <span
-                        className="cursor-help text-xs text-tx-3"
+                        className="cursor-help text-[11px] text-faint"
                         title={whyNoWindow(ep.start, ep.end)}
                       >
-                        no bars left
+                        No bars left
                       </span>
                     )}
                   </td>
@@ -342,11 +367,9 @@ function EpisodeTable({
         </table>
       </div>
 
-      <p className="text-xs text-tx-3">
-        Net is realised PnL minus the fees paid in USDC. Return is against the largest
-        position held, not against account equity.{" "}
-        {eps.length > drawable.length &&
-          `${eps.length - drawable.length} of these are too old or too short to draw: Hyperliquid serves 1m bars for about three and a half days.`}
+      <p className="text-[11px] leading-relaxed text-faint">
+        Net is realised PnL minus fees paid in USDC. Return is against the largest position
+        held, not against account equity.
       </p>
     </div>
   );

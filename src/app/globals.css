@@ -1,28 +1,47 @@
 @import "tailwindcss";
 
 /**
- * One palette for the app and the exported video.
+ * Hyperliquid's own design tokens.
  *
- * `frame.ts` paints the clip on a bare canvas with no access to CSS, so these values
- * are duplicated there as constants. They have to stay in step or a clip stops looking
- * like the page it came from.
+ * Lifted from app.hyperliquid.xyz's stylesheet rather than eyeballed, so Runback reads as
+ * part of the same product instead of a tribute to it. Their `:root` block is reproduced
+ * here almost verbatim; the additions are marked.
+ *
+ * The things that make it look like them are not the colours, though. They are:
+ *   - weight 400 nearly everywhere, including titles. Bold is rare and small.
+ *   - body copy at 11-13px, titles at 18-20px. Much smaller than feels right at first.
+ *   - 1px borders in --hl-border on a transparent fill, not filled cards.
+ *   - .12s transitions on border-color and background, and scale(.99) on :active.
+ *
+ * `frame.ts` paints the exported video on a bare canvas with no access to CSS, so these
+ * values are duplicated there as constants and the two have to stay in step.
  */
 @theme {
-  --color-ground: #0b0c0f;
-  --color-surface: #14161b;
-  --color-raised: #1b1e25;
-  --color-line: #242830;
-  --color-line-2: #333944;
+  --color-ground: #0f1a1e;
+  --color-surface: #0f1a1f;
+  --color-inset: #273035;
+  --color-border: #273035;
+  --color-divider: #ffffff0f;
 
-  --color-tx: #e8ecf2;
-  --color-tx-2: #98a2b0;
-  --color-tx-3: #6b7484;
+  --color-title: #ffffff;
+  --color-tx: #f6fefd;
+  --color-muted: #9aa3a4;
+  --color-faint: #9aa3a48c;
 
-  --color-mint: #35d399;
-  --color-signal: #ff5a5a;
-  --color-amber: #ffb224;
+  --color-accent: #97fce4;
+  --color-accent-soft: #50d2c1;
+  --color-accent-text: #04060c;
+  --color-accent-dim: #17453f;
 
-  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+  --color-error: #ed7088;
+  /* Added: a loss wash and a shimmer midpoint, both derived from their palette. */
+  --color-error-dim: #3d2027;
+  --color-shimmer: #1f2d33;
+
+  --radius-hl: 12px;
+  --radius-hl-sm: 8px;
+
+  --font-sans: Inter, system-ui, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", sans-serif;
 }
 
 :root {
@@ -33,29 +52,69 @@ html,
 body {
   background: var(--color-ground);
   color: var(--color-tx);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
+  font-size: 13px;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior-x: none;
 }
 
 body {
   margin: 0;
 }
 
-/* Digits in a column must line up, everywhere. There is no exception in this app. */
+/* Every figure in this app sits in a column with another figure. No exceptions. */
 * {
   font-variant-numeric: tabular-nums;
+  -webkit-tap-highlight-color: transparent;
+  text-underline-offset: 0.2em;
+}
+
+/* Theirs: hidden by default, thin and translucent where scrolling is expected. */
+::-webkit-scrollbar {
+  display: none;
+}
+.scrollers {
+  scrollbar-width: thin;
+}
+.scrollers::-webkit-scrollbar {
+  display: initial;
+  width: 5px;
+  height: 5px;
+}
+.scrollers::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollers::-webkit-scrollbar-thumb {
+  background: #ffffff33;
+  border-radius: 5px;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
 }
 
 button:focus-visible,
 a:focus-visible,
-input:focus-visible {
-  outline: 2px solid var(--color-amber);
+input:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--color-accent-soft);
   outline-offset: 2px;
 }
 
 ::selection {
-  background: var(--color-amber);
-  color: var(--color-ground);
+  background: var(--color-accent-soft);
+  color: var(--color-accent-text);
 }
 
 /* The chart library paints its own attribution link; the export must not include it. */
@@ -63,11 +122,50 @@ input:focus-visible {
   display: none !important;
 }
 
+/* ------------------------------------------------------------------ motion */
+
+@keyframes hl-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes hl-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes hl-shimmer {
+  from { background-position-x: 200%; }
+  to { background-position-x: -200%; }
+}
+
+@keyframes hl-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.hl-fade { animation: hl-fade 0.16s ease-out; }
+.hl-rise { animation: hl-rise 0.2s ease-out; }
+
+/** Their loading treatment: a band of lighter ground travelling across the shape. */
+.hl-skeleton {
+  background: linear-gradient(
+    110deg,
+    var(--color-surface) 0% 40%,
+    var(--color-shimmer) 50%,
+    var(--color-surface) 60% 100%
+  );
+  background-size: 200% 100%;
+  animation: hl-shimmer 1.8s linear infinite;
+  border-radius: var(--radius-hl-sm);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }

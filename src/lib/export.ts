@@ -35,12 +35,12 @@ import {
 import { paint, type PaintFill } from "@/lib/frame";
 import type { Replay } from "@/lib/episodes";
 
-const GROUND = "#0b0c0f";
-const LINE = "#242830";
-const TX3 = "#6b7484";
-const MINT = "#35d399";
-const SIGNAL = "#ff5a5a";
-const AMBER = "#ffb224";
+const GROUND = "#0f1a1e";
+const LINE = "#273035";
+const TX3 = "#9aa3a4";
+const MINT = "#50d2c1";
+const SIGNAL = "#ed7088";
+const AMBER = "#97fce4";
 
 /** How long a fill label stays up, and how long it takes to arrive and leave. */
 const FLASH_HOLD = 1400;
@@ -76,6 +76,19 @@ export async function exportClip(
 ): Promise<ExportResult | null> {
   const encoders: Encoders | null = await negotiate();
   if (!encoders) throw new Error("This browser cannot encode video. Try Chrome or Edge.");
+
+  /**
+   * Canvas cannot wait for a webfont the way the DOM can.
+   *
+   * `ctx.fillText` with a face the document has not finished loading silently falls back,
+   * so an export started early comes out in the system UI font while the page around it is
+   * in Inter. Waiting costs nothing on a warm load and fixes the cold one.
+   */
+  try {
+    await document.fonts.ready;
+  } catch {
+    // No Font Loading API. The fallback stack is still correct, just not Inter.
+  }
 
   const layout = layoutFor(opts.shape);
   const bars = data.candles.length;
