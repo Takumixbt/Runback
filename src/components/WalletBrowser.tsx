@@ -26,12 +26,16 @@ const UP = "#50d2c1";
 const DOWN = "#ed7088";
 const FLIPPED = "#97fce4";
 
-const SPANS = [
-  { label: "24h", days: 1 },
-  { label: "7d", days: 7 },
-  { label: "30d", days: 30 },
-  { label: "All", days: 3650 },
-] as const;
+/**
+ * How far back to read, without asking.
+ *
+ * A timeframe control was the first thing on the page and it was a question nobody has an
+ * answer to before they have seen any results. 30 days covers everything the candle
+ * endpoint can still draw at a useful interval, and a wallet with nothing in it is
+ * silently retried over a year rather than left looking empty.
+ */
+const SPAN_DAYS = 30;
+const WIDER_DAYS = 400;
 
 type Phase =
   | { k: "idle" }
@@ -41,7 +45,6 @@ type Phase =
 
 export function WalletBrowser({ initial }: { initial?: string }) {
   const [address, setAddress] = useState(initial ?? "");
-  const [span, setSpan] = useState<(typeof SPANS)[number]>(SPANS[1]);
   const [phase, setPhase] = useState<Phase>({ k: "idle" });
   const [eps, setEps] = useState<Episode[]>([]);
   const [markets, setMarkets] = useState<Map<string, Market> | null>(null);
@@ -57,7 +60,7 @@ export function WalletBrowser({ initial }: { initial?: string }) {
       .catch(() => setMarkets(null));
   }, []);
 
-  const load = useCallback(async (who: string, days: number) => {
+  const load = useCallback(async (who: string) => {
     abort.current?.abort();
     const ctl = new AbortController();
     abort.current = ctl;
@@ -68,11 +71,15 @@ export function WalletBrowser({ initial }: { initial?: string }) {
     setPhase({ k: "loading", note: "reading fills" });
 
     const now = Date.now();
-    try {
-      const raw = await fetchFills(who, now - days * 86_400_000, now, {
+    const read = (days: number) =>
+      fetchFills(who, now - days * 86_400_000, now, {
         signal: ctl.signal,
         onPage: (total) => setPhase({ k: "loading", note: `${total} fills` }),
       });
+
+    try {
+      let raw = await read(SPAN_DAYS);
+      if (raw.length === 0 && !ctl.signal.aborted) raw = await read(WIDER_DAYS);
       if (ctl.signal.aborted) return;
       setEps(segment(raw));
       setPhase({ k: "ready" });
@@ -100,9 +107,9 @@ export function WalletBrowser({ initial }: { initial?: string }) {
         return;
       }
       window.history.replaceState(null, "", `/w/${who}`);
-      void load(who, span.days);
+      void load(who);
     },
-    [address, span.days, load],
+    [address, load],
   );
 
   /**
@@ -139,7 +146,7 @@ export function WalletBrowser({ initial }: { initial?: string }) {
   );
 
   useEffect(() => {
-    if (initial && isAddress(initial)) void load(initial.toLowerCase(), SPANS[1].days);
+    if (initial && isAddress(initial)) void load(initial.toLowerCase());
     // Mount only, and only when the route carried an address.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -183,32 +190,6 @@ export function WalletBrowser({ initial }: { initial?: string }) {
             {busy ? "Loading" : "Run it back"}
           </button>
         </div>
-
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-0.5 rounded-[8px] border border-border p-0.5">
-            {SPANS.map((s) => (
-              <button
-                key={s.label}
-                type="button"
-                onClick={() => {
-                  setSpan(s);
-                  if (isAddress(loaded.current)) void load(loaded.current, s.days);
-                }}
-                className={`rounded-[6px] px-2.5 py-1 text-[11px] transition-colors duration-[120ms] ${
-                  span.label === s.label
-                    ? "bg-inset text-tx"
-                    : "text-faint hover:text-muted"
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-          <span className="text-[11px] text-faint">
-            Hyperliquid keeps 5,000 bars per interval, so older trades load but many cannot
-            be drawn.
-          </span>
-        </div>
       </form>
 
       {busy && <TableSkeleton note={phase.note} />}
@@ -221,7 +202,7 @@ export function WalletBrowser({ initial }: { initial?: string }) {
 
       {phase.k === "ready" && eps.length === 0 && (
         <p className="rounded-[8px] border border-border px-4 py-5 text-[12px] text-faint">
-          No fills in that window. Try a wider span.
+          No trades found for that wallet.
         </p>
       )}
 
@@ -366,11 +347,6 @@ function EpisodeTable({
           </tbody>
         </table>
       </div>
-
-      <p className="text-[11px] leading-relaxed text-faint">
-        Net is realised PnL minus fees paid in USDC. Return is against the largest position
-        held, not against account equity.
-      </p>
     </div>
   );
 }

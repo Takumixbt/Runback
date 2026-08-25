@@ -139,6 +139,16 @@ summary:focus-visible {
   to { background-position-x: -200%; }
 }
 
+/**
+ * The ticker scrolls exactly half its track, which holds two identical copies of the
+ * list. At the halfway point the frame is pixel-identical to the start, so the loop
+ * restarts with no visible jump.
+ */
+@keyframes runback-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
 @keyframes hl-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
