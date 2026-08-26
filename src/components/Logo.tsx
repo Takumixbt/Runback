@@ -1,58 +1,71 @@
 /**
- * The mark: a lemniscate, drawn as one unbroken stroke, with a bright segment running
- * around it forever.
+ * The mark: a loop turning through itself.
  *
- * Hyperliquid's own logo is an organic mint form with no straight edges and no corners,
- * and read closely it is two lobes meeting at a pinch, which is an infinity. So the shape
- * is theirs and the motion is ours: a loop that never resolves is the product, and the
- * travelling segment says "running" without a spinner or a pulse.
+ * Not Hyperliquid's shape. Theirs is two lobes and a pinch, and copying it would just be
+ * their logo in someone else's nav. This is a ring, which is the nearest honest thing to
+ * what the product does, and it takes only the palette and the softness from them.
  *
- * `pathLength={100}` normalises the geometry so the dash lengths below are percentages and
- * the animation does not have to know the real arc length.
+ * The motion is the point. The ring is tilted back so it is read as lying in space rather
+ * than drawn on glass, and it turns continuously about its vertical axis, so the far side
+ * comes round through the near side and the loop feeds into itself without ever stopping.
+ * Bands travelling round the tube at the same time give the surface something to move,
+ * which is what stops a rotating circle from looking like a stationary one.
  */
-export function Logo({ size = 26, animate = true }: { size?: number; animate?: boolean }) {
+export function Logo({ size = 24, animate = true }: { size?: number; animate?: boolean }) {
+  const spin = animate
+    ? "animate-[runback-spin_5.5s_linear_infinite] motion-reduce:animate-none"
+    : "";
+  const flow = animate
+    ? "animate-[runback-flow_2.2s_linear_infinite] motion-reduce:animate-none"
+    : "";
+
   return (
-    <svg
-      viewBox="0 0 48 26"
-      width={(size * 48) / 26}
-      height={size}
-      fill="none"
-      aria-hidden
-      className="shrink-0 overflow-visible"
+    <span
+      className="inline-block shrink-0 align-middle"
+      style={{ perspective: `${size * 4}px`, width: size, height: size }}
     >
-      <path
-        d={PATH}
-        pathLength={100}
-        stroke="#1d4a45"
-        strokeWidth={4}
-        strokeLinecap="round"
-      />
-      <path
-        d={PATH}
-        pathLength={100}
-        stroke="#97fce4"
-        strokeWidth={4}
-        strokeLinecap="round"
-        strokeDasharray="22 78"
-        className={
-          animate
-            ? "animate-[runback-trace_3.2s_linear_infinite] motion-reduce:animate-none"
-            : undefined
-        }
-      />
-    </svg>
+      <span className={`grid h-full w-full [transform-style:preserve-3d] ${spin}`}>
+        <svg viewBox="0 0 48 48" className="col-start-1 row-start-1 h-full w-full" aria-hidden>
+          <defs>
+            <linearGradient id="runback-tube" x1="0" y1="0" x2="0.35" y2="1">
+              <stop offset="0%" stopColor="#e0fff7" />
+              <stop offset="42%" stopColor="#97fce4" />
+              <stop offset="100%" stopColor="#3fb8a3" />
+            </linearGradient>
+          </defs>
+
+          {/* The tube's shaded underside, sitting a hair below the lit face. */}
+          <circle
+            cx="24"
+            cy="24.9"
+            r="15"
+            fill="none"
+            stroke="#0f5f55"
+            strokeWidth="7.5"
+          />
+          <circle
+            cx="24"
+            cy="24"
+            r="15"
+            fill="none"
+            stroke="url(#runback-tube)"
+            strokeWidth="7"
+          />
+          {/* Bands running the circumference, so the surface itself is moving. */}
+          <circle
+            cx="24"
+            cy="24"
+            r="15"
+            pathLength={100}
+            fill="none"
+            stroke="#ffffff"
+            strokeOpacity="0.35"
+            strokeWidth="7"
+            strokeDasharray="7 18"
+            className={flow}
+          />
+        </svg>
+      </span>
+    </span>
   );
 }
-
-/**
- * Two lobes meeting at the centre, as a single continuous curve.
- *
- * One path rather than two circles, because the travelling segment has to cross the pinch
- * without stopping. Two shapes would each restart the dash at their own start point and
- * the motion would stutter in the middle.
- */
-const PATH =
-  "M24,13 C24,6.6 20.2,3.4 15.6,3.4 C9.9,3.4 6.4,7.6 6.4,13 " +
-  "C6.4,18.4 9.9,22.6 15.6,22.6 C20.2,22.6 24,19.4 24,13 " +
-  "C24,6.6 27.8,3.4 32.4,3.4 C38.1,3.4 41.6,7.6 41.6,13 " +
-  "C41.6,18.4 38.1,22.6 32.4,22.6 C27.8,22.6 24,19.4 24,13 Z";
