@@ -19,34 +19,22 @@ import { NOTABLE, type Notable } from "./notable";
  */
 
 /**
- * How far back to look for a highlight.
+ * The whole record, not a window onto it.
  *
- * Wide, and that is the point. MEASURED over 45 days, every famous name on the list came
- * back with zero fills: AguilaTrades, Ansem, Pentoshi, the whales. They are not gone, they
- * are just not trading this week, and their best position is the one people remember. Over
- * 400 days the same list produces AguilaTrades down $6.3M on BTC and an ETH long worth
- * $72M.
+ * A 400-day lookback was cutting off exactly what the section exists to show. MEASURED on
+ * James Wynn: the window opened on 2025-07-22 and his account starts 2025-03-13, so the
+ * BTC position that made $12.6M and the one that lost $20.6M five days later both fell
+ * outside it, and the card advertised a $135K kPEPE trade as his best. Those two are the
+ * whole reason anyone knows his name.
  *
- * Old does not mean undrawable. The 5,000-bar wall is per interval, and 4h bars reach back
- * more than two years, so a position held for days is still replayable a year later. Only
- * short old trades are lost, and `pickWindow` is what decides.
+ * Reading from zero costs a few more pages on a cache that lasts an hour, and a best and
+ * worst on record does not change often enough to justify anything shorter. Old does not
+ * mean undrawable either: 4h bars reach back over two years, so both of Wynn's are still
+ * replayable.
  */
-const LOOKBACK_DAYS = 400;
-/** Enough to reach real size without walking a market maker's entire tape. */
-const MAX_PAGES = 4;
+const SINCE = 0;
+const MAX_PAGES = 12;
 
-/**
- * How many traders to read at once, and how long to wait between starts.
- *
- * The whole list fired in parallel is seven wallets times six pages from ONE server IP,
- * and Hyperliquid limits by IP at 1,200 weight a minute. It tripped: four of the seven
- * came back empty and `allSettled` swallowed it, so the page silently rendered three
- * traders and looked like the data was missing rather than throttled.
- *
- * This is the one place in the app that cannot spread load across visitors, so it has to
- * behave. Two at a time with a gap between starts keeps the whole refresh well inside the
- * budget and costs a few seconds on a cache miss nobody is waiting on.
- */
 const CONCURRENCY = 3;
 const STAGGER_MS = 200;
 
@@ -106,9 +94,7 @@ function highlight(ep: Episode, known: Map<string, Market>): Highlight {
 async function card(who: Notable, known: Map<string, Market>, now: number): Promise<TraderCard> {
   const blank: TraderCard = { ...who, best: null, worst: null, positions: 0, net: 0 };
   try {
-    const raw = await fills(who.address, now - LOOKBACK_DAYS * 86_400_000, now, {
-      maxPages: MAX_PAGES,
-    });
+    const raw = await fills(who.address, SINCE, now, { maxPages: MAX_PAGES });
     if (raw.length === 0) return blank;
 
     /** Only what can actually be watched. A card that opens onto nothing is worse than none. */
@@ -168,7 +154,7 @@ const cachedCard = unstable_cache(
     return result;
   },
   ["runback:trader"],
-  { revalidate: 600 },
+  { revalidate: 3600 },
 );
 
 export async function traderCards(): Promise<TraderCard[]> {

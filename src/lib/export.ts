@@ -42,6 +42,10 @@ const MINT = "#50d2c1";
 const SIGNAL = "#ed7088";
 const AMBER = "#97fce4";
 
+/** Mirrors the screen, so a clip frames the trade the same way the replay did. */
+const WINDOW_BARS = 95;
+const RIGHT_PAD = 6;
+
 /** How long a fill label stays up, and how long it takes to arrive and leave. */
 const FLASH_HOLD = 1400;
 const FLASH_IN = 220;
@@ -66,7 +70,12 @@ export interface ExportResult {
  * duration inside the ceiling and divide. Short replays get a floor so they are watchable.
  */
 function pacing(bars: number): { seconds: number; frames: number } {
-  const ideal = Math.min(MAX_CLIP_SECONDS - OUTRO_SECONDS, Math.max(6, bars * 0.035));
+  /**
+   * Roughly an eighth of a second a bar, floored so a short trade is still watchable and
+   * ceilinged by what the muxer can hold in memory. The old rate was 35ms a bar, which
+   * put a hundred-bar position on screen for three and a half seconds.
+   */
+  const ideal = Math.min(MAX_CLIP_SECONDS - OUTRO_SECONDS, Math.max(9, bars * 0.13));
   return { seconds: ideal, frames: Math.round((ideal + OUTRO_SECONDS) * FPS) };
 }
 
@@ -119,7 +128,7 @@ export async function exportClip(
        */
       fontSize: Math.round(12 * (layout.chart.w / 992) * 1.6),
     },
-    grid: { vertLines: { color: "transparent" }, horzLines: { color: LINE } },
+    grid: { vertLines: { color: "#ffffff07" }, horzLines: { color: "#ffffff07" } },
     rightPriceScale: { borderColor: LINE, scaleMargins: layout.scaleMargins },
     timeScale: { borderColor: LINE, timeVisible: true, secondsVisible: false },
     crosshair: { mode: 0 },
@@ -199,7 +208,7 @@ export async function exportClip(
       position: isBuy ? "belowBar" : "aboveBar",
       color: cell.liq ? AMBER : isBuy ? MINT : SIGNAL,
       shape: isBuy ? "arrowUp" : "arrowDown",
-      text: cell.liq ? "LIQ" : cell.n > 1 ? `${cell.n}` : "",
+      text: cell.liq ? "LIQ" : "",
     } satisfies SeriesMarker<Time>;
   });
 
@@ -210,27 +219,56 @@ export async function exportClip(
     markersUpto[i] = k;
   }
 
-  // The whole span is in view from frame zero, so the trade holds still and fills in.
+  /**
+   * A window, exactly as the screen uses. This is what made every export look zoomed.
+   *
+   * Pinning the whole time span from frame zero while the series holds only the bars
+   * revealed so far means the drawn bars are crammed into a sliver at the left, and the
+   * price scale, which fits what it HOLDS rather than what is shown, stretches those few
+   * bars over the full height. The result reads as a chart zoomed hard into its own corner,
+   * for the entire clip.
+   *
+   * Same fix as the screen: open on a window of WINDOW_BARS and let the chart scroll itself
+   * as bars are appended.
+   */
   series.setData(candleData.slice(0, 1));
-  chart.timeScale().setVisibleRange({
-    from: candleData[0]!.time,
-    to: candleData[candleData.length - 1]!.time,
-  });
+  chart.timeScale().setVisibleLogicalRange(
+    bars <= WINDOW_BARS
+      ? { from: -RIGHT_PAD / 2, to: bars - 1 + RIGHT_PAD / 2 }
+      : { from: -RIGHT_PAD, to: WINDOW_BARS - RIGHT_PAD },
+  );
 
   let painted = -1;
 
-  const stepTo = (index: number): void => {
-    if (index === painted) return;
-    if (index === painted + 1) series.update(candleData[index]!);
-    else {
+  const stepTo = (index: number, frac: number): void => {
+    if (index < painted) {
       series.setData(candleData.slice(0, index + 1));
-      chart.timeScale().setVisibleRange({
-        from: candleData[0]!.time,
-        to: candleData[candleData.length - 1]!.time,
-      });
+      if (bars > WINDOW_BARS) {
+        chart.timeScale().setVisibleLogicalRange({
+          from: index - WINDOW_BARS + RIGHT_PAD,
+          to: index + RIGHT_PAD,
+        });
+      }
+    } else {
+      for (let k = painted + 1; k < index; k += 1) series.update(candleData[k]!);
+    }
+
+    /** The bar being lived through, eased, matching the screen exactly. */
+    const bar = candleData[index]!;
+    const p = frac * frac * (3 - 2 * frac);
+    const close = bar.open + (bar.close - bar.open) * p;
+    series.update({
+      time: bar.time,
+      open: bar.open,
+      close,
+      high: Math.max(bar.open, close, bar.open + (bar.high - bar.open) * p),
+      low: Math.min(bar.open, close, bar.open + (bar.low - bar.open) * p),
+    });
+
+    if (index !== painted) {
+      markerApi.setMarkers(allMarkers.slice(0, markersUpto[index] ?? 0));
     }
     painted = index;
-    markerApi.setMarkers(allMarkers.slice(0, markersUpto[index] ?? 0));
   };
 
   /* -------------------------------------------------------- frame source */
@@ -285,9 +323,9 @@ export async function exportClip(
       cancelled: () => opts.cancelled?.() ?? false,
       onProgress: (i) => opts.onProgress?.(i / frames),
       draw: (ctx, i) => {
-        const barIndex =
-          i >= replayFrames ? bars - 1 : Math.floor((i / replayFrames) * bars);
-        stepTo(Math.min(barIndex, bars - 1));
+        const exact = i >= replayFrames ? bars - 1 : (i / replayFrames) * bars;
+        const barIndex = Math.min(Math.floor(exact), bars - 1);
+        stepTo(barIndex, i >= replayFrames ? 1 : exact - barIndex);
 
         const point = data.points[Math.min(barIndex, data.points.length - 1)] ?? null;
         const nowMs = timeAt(i);

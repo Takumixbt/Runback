@@ -31,17 +31,15 @@ const DOWN = "#ed7088";
 const ACCENT = "#97fce4";
 
 /**
- * How long the replay runs, in ms, regardless of how many bars it holds.
+ * How long one bar is held at 1x.
  *
- * Derived rather than a fixed rate per bar, which is what the first version did. At 90ms a
- * bar a 45-bar scalp was a four-second video and an 800-bar hold was seventy seconds: the
- * same control produced two completely different things. Pacing from the duration means
- * every replay is watchable in about the same sitting and the speed control means what it
- * says.
+ * Six hundred milliseconds, which is Trickshot's number, and it is the single thing that
+ * decides whether a replay is watchable. Normalising the whole thing to a fixed total
+ * duration was the mistake: it meant a four-hundred-bar hold ran at fifty milliseconds a
+ * bar, so the candles blurred past and nothing could be read. A bar deserves the same time
+ * whatever else is in the chart, and anyone who wants it faster has the speed control.
  */
-const MS_PER_BAR = 42;
-const MIN_RUN_MS = 13_000;
-const MAX_RUN_MS = 24_000;
+const STEP_MS = 600;
 
 /**
  * How much longer a bar carrying a fill is held, and how far that spreads either side.
@@ -55,8 +53,8 @@ const MAX_RUN_MS = 24_000;
  * liquidation. The total is normalised afterwards, so this changes the SHAPE of the
  * playback without making it longer.
  */
-const FILL_BOOST = 4.5;
-const LIQ_BOOST = 9;
+const FILL_BOOST = 1.6;
+const LIQ_BOOST = 3;
 
 /**
  * Bars kept in view while the replay runs, and the gap held open ahead of the last one.
@@ -70,7 +68,7 @@ const LIQ_BOOST = 9;
 const WINDOW_BARS = 95;
 const RIGHT_PAD = 6;
 
-const SPEEDS = [0.5, 1, 2, 4] as const;
+const SPEEDS = [1, 2, 4, 8] as const;
 
 /** Every $500 gained past the previous high sounds once. */
 const PROFIT_STEP = 500;
@@ -98,7 +96,8 @@ export function Replay({ data }: { data: ReplayData }) {
 
   const [cursor, setCursor] = useState(0);
   const [playing, setPlaying] = useState(true);
-  const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
+  /** Two, like Trickshot: one is deliberate, and deliberate is slow to arrive at. */
+  const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(2);
   const [muted, setMuted] = useState(true);
 
   const bars = data.candles.length;
@@ -231,11 +230,7 @@ export function Replay({ data }: { data: ReplayData }) {
       }
     }
 
-    let sum = 0;
-    for (let i = 0; i < bars; i += 1) sum += out[i]!;
-    const target = Math.min(MAX_RUN_MS, Math.max(MIN_RUN_MS, bars * MS_PER_BAR));
-    const scale = target / sum;
-    for (let i = 0; i < bars; i += 1) out[i] = out[i]! * scale;
+    for (let i = 0; i < bars; i += 1) out[i] = out[i]! * STEP_MS;
     return out;
   }, [bars, fillsAtBar, wasLiquidated]);
 
@@ -263,7 +258,7 @@ export function Replay({ data }: { data: ReplayData }) {
       },
       rightPriceScale: {
         borderColor: BORDER,
-        scaleMargins: { top: 0.12, bottom: 0.12 },
+        scaleMargins: { top: 0.2, bottom: 0.1 },
         entireTextOnly: true,
       },
       timeScale: {
@@ -436,14 +431,17 @@ export function Replay({ data }: { data: ReplayData }) {
        * is exactly what `update` is for, so this costs one call a frame.
        */
       const bar = candleData[i]!;
-      const p = Math.min(Math.max(frac, 0), 1);
+      const raw = Math.min(Math.max(frac, 0), 1);
+      /** Smoothstep: a linear walk reads mechanical, which is what a slideshow looks like. */
+      const p = raw * raw * (3 - 2 * raw);
       const close = bar.open + (bar.close - bar.open) * p;
       series.update({
         time: bar.time,
         open: bar.open,
         close,
-        high: Math.min(bar.high, Math.max(bar.open, close) + (bar.high - Math.max(bar.open, bar.close)) * p),
-        low: Math.max(bar.low, Math.min(bar.open, close) - (Math.min(bar.open, bar.close) - bar.low) * p),
+        // Wick grows out of the open alongside the body, as a live candle's does.
+        high: Math.max(bar.open, close, bar.open + (bar.high - bar.open) * p),
+        low: Math.min(bar.open, close, bar.open + (bar.low - bar.open) * p),
       });
 
       /**
