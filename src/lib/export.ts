@@ -34,6 +34,7 @@ import {
 } from "@/lib/clip";
 import { paint, type PaintFill } from "@/lib/frame";
 import type { Replay } from "@/lib/episodes";
+import { renderTrack, type TimedCue } from "@/lib/sound";
 
 const GROUND = "#0f1a1e";
 const LINE = "#273035";
@@ -79,6 +80,19 @@ function pacing(bars: number): { seconds: number; frames: number } {
   return { seconds: ideal, frames: Math.round((ideal + OUTRO_SECONDS) * FPS) };
 }
 
+/** Which bar a fill lands on. Standalone, because the soundtrack needs it before the chart exists. */
+function barOfFill(data: Replay, ts: number): number {
+  let lo = 0;
+  let hi = data.candles.length - 1;
+  if (hi < 0) return 0;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (data.candles[mid]!.t <= ts) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
 export async function exportClip(
   data: Replay,
   opts: ExportOptions,
@@ -105,6 +119,37 @@ export async function exportClip(
 
   const { seconds, frames } = pacing(bars);
   const replayFrames = Math.round(seconds * FPS);
+
+  /**
+   * The soundtrack, rendered before a single frame is drawn.
+   *
+   * Exports were silent, which is most of why a clip felt flat next to the replay it came
+   * from: the ticks on the fills and the thud on a liquidation are what give it weight
+   * when it autoplays muted-until-tapped in somebody's timeline.
+   *
+   * Cues are placed by mapping each fill's timestamp onto clip time through the same linear
+   * frame-to-bar walk the video uses, so a sound lands on the frame its arrow appears.
+   */
+  const track = await (async () => {
+    const spanBars = Math.max(bars - 1, 1);
+    const cues: TimedCue[] = [];
+    for (const f of data.fills) {
+      const bar = barOfFill(data, f.time);
+      const at = (bar / spanBars) * seconds;
+      cues.push({
+        cue: f.liquidatedUser === data.wallet.toLowerCase()
+          ? "liquidation"
+          : f.side === "B"
+            ? "buy"
+            : "sell",
+        at,
+      });
+    }
+    cues.sort((a, b) => a.at - b.at);
+    // The full stop, on the end card rather than on the last bar.
+    cues.push({ cue: "settle", at: seconds + 0.15 });
+    return renderTrack(cues, seconds + OUTRO_SECONDS);
+  })();
 
   /* ------------------------------------------------- the offscreen chart */
 
@@ -288,10 +333,18 @@ export async function exportClip(
     const arrive = FLASH_IN * scale;
     const leave = FLASH_OUT * scale;
 
-    for (const f of data.fills) {
+    /**
+     * Walked backwards, because the newest three are the ones worth showing.
+     *
+     * Forwards with a `break` at three took the OLDEST three fills still inside the window
+     * and stopped, so a TWAP'd entry with four hundred fills in view showed the first three
+     * for the entire time and never updated. The trailing `slice(-3)` could not fix that;
+     * there were only ever three to slice.
+     */
+    for (let k = data.fills.length - 1; k >= 0 && out.length < 3; k -= 1) {
+      const f = data.fills[k]!;
       const age = nowMs - f.time;
       if (age < 0 || age > hold) continue;
-      if (out.length >= 3) break;
       const alpha =
         age < arrive
           ? age / arrive
@@ -304,13 +357,16 @@ export async function exportClip(
         dir: f.dir,
         usd: f.sz * f.px,
         px: f.px,
-        slot: out.length,
+        slot: 0,
         alpha,
         // The wash is on its own shorter curve and gone the moment the label leaves.
         wash: age > hold - leave ? 0 : Math.max(0, 1 - age / (hold * 0.6)),
       });
     }
-    return out.slice(-3);
+    // Oldest first again, then slotted, so labels stack in the order they landed.
+    out.reverse();
+    out.forEach((f, k) => (f.slot = k));
+    return out;
   };
 
   try {
@@ -319,7 +375,7 @@ export async function exportClip(
       encoders,
       frames,
       fps: FPS,
-      audio: null,
+      audio: track,
       cancelled: () => opts.cancelled?.() ?? false,
       onProgress: (i) => opts.onProgress?.(i / frames),
       draw: (ctx, i) => {

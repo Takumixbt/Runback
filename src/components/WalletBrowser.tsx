@@ -40,6 +40,16 @@ const FAINT = "#9aa3a48c";
 const SPAN_DAYS = 30;
 const WIDER_DAYS = 400;
 
+/**
+ * Arriving on a link to one specific position reads everything.
+ *
+ * The trader cards link at a position picked from a wallet's WHOLE record, and this list
+ * was loading thirty days. James Wynn's best is May 2025, so `eps.find` came back
+ * undefined and "Watch" did nothing at all: no error, no chart, no clue. Every link on the
+ * front page to a trade older than a month was silently dead.
+ */
+const LINKED_DAYS = 4000;
+
 type Phase =
   | { k: "idle" }
   | { k: "loading"; note: string }
@@ -70,7 +80,7 @@ export function WalletBrowser({
       .catch(() => setMarkets(null));
   }, []);
 
-  const load = useCallback(async (who: string) => {
+  const load = useCallback(async (who: string, deep = false) => {
     abort.current?.abort();
     const ctl = new AbortController();
     abort.current = ctl;
@@ -84,12 +94,13 @@ export function WalletBrowser({
     const read = (days: number) =>
       fetchFills(who, now - days * 86_400_000, now, {
         signal: ctl.signal,
+        maxPages: deep ? 12 : 8,
         onPage: (total) => setPhase({ k: "loading", note: `${total} fills` }),
       });
 
     try {
-      let raw = await read(SPAN_DAYS);
-      if (raw.length === 0 && !ctl.signal.aborted) raw = await read(WIDER_DAYS);
+      let raw = await read(deep ? LINKED_DAYS : SPAN_DAYS);
+      if (raw.length === 0 && !ctl.signal.aborted && !deep) raw = await read(WIDER_DAYS);
       if (ctl.signal.aborted) return;
       setEps(segment(raw, who));
       setPhase({ k: "ready" });
@@ -166,13 +177,21 @@ export function WalletBrowser({
   useEffect(() => {
     if (!position || opened.current || eps.length === 0) return;
     const target = eps.find((e) => e.id === position);
-    if (!target) return;
+    if (!target) {
+      // The list loaded and the position is genuinely not in it. Say so rather than nothing.
+      opened.current = true;
+      setPhase({
+        k: "error",
+        message: "That position is no longer in this wallet's readable history.",
+      });
+      return;
+    }
     opened.current = true;
     void open(target);
   }, [position, eps, open]);
 
   useEffect(() => {
-    if (initial && isAddress(initial)) void load(initial.toLowerCase());
+    if (initial && isAddress(initial)) void load(initial.toLowerCase(), Boolean(position));
     // Mount only, and only when the route carried an address.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
