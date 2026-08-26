@@ -150,22 +150,24 @@ summary:focus-visible {
 }
 
 /**
- * The mark turning about its vertical axis.
+ * The mark leaning through space.
  *
- * A constant backward tilt is held through the whole turn, so the ring is always read at
- * an angle and never flattens to a line. Combined with the shaded underside that keeps an
- * edge visible at every point of the rotation, which is what makes it an object turning
- * rather than a drawing being squashed.
+ * Three axes on one slow cycle, deliberately out of step with the flow that runs along
+ * the path, so the two motions never line up and the mark never strikes the same pose
+ * twice running. The angles stay small: enough that the form is read as sitting in space,
+ * never so much that it flattens to a line.
  */
-@keyframes runback-spin {
-  from { transform: rotateX(58deg) rotateY(0deg); }
-  to   { transform: rotateX(58deg) rotateY(360deg); }
+@keyframes runback-swell {
+  0%   { transform: rotateX(14deg) rotateY(-20deg) rotateZ(-3deg); }
+  33%  { transform: rotateX(-10deg) rotateY(12deg) rotateZ(2deg); }
+  66%  { transform: rotateX(8deg) rotateY(24deg) rotateZ(-1deg); }
+  100% { transform: rotateX(14deg) rotateY(-20deg) rotateZ(-3deg); }
 }
 
-/** Bands running the circumference, giving the surface something to move. */
+/** The head running the loop. One full pathLength a cycle, so it never seams. */
 @keyframes runback-flow {
   from { stroke-dashoffset: 0; }
-  to   { stroke-dashoffset: -25; }
+  to   { stroke-dashoffset: -100; }
 }
 
 @keyframes hl-pulse {
