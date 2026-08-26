@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   candles as fetchCandles,
   fills as fetchFills,
@@ -19,20 +19,23 @@ import {
   type Episode,
   type Replay as ReplayData,
 } from "@/lib/episodes";
-import { duration, pct, shortAddress, signedUsd, usdCompact, when } from "@/lib/format";
+import { duration, pct, signedUsd, usdCompact, when } from "@/lib/format";
+import { CoinIcon } from "./CoinIcon";
+import { Metric, Panel } from "./Panel";
 import { Replay } from "./Replay";
 
 const UP = "#50d2c1";
 const DOWN = "#ed7088";
 const FLIPPED = "#97fce4";
+const FAINT = "#9aa3a48c";
 
 /**
  * How far back to read, without asking.
  *
- * A timeframe control was the first thing on the page and it was a question nobody has an
- * answer to before they have seen any results. 30 days covers everything the candle
- * endpoint can still draw at a useful interval, and a wallet with nothing in it is
- * silently retried over a year rather than left looking empty.
+ * A timeframe control was the first thing on the page and it was a question nobody can
+ * answer before seeing any results. 30 days covers everything the candle endpoint can
+ * still draw at a useful interval, and a wallet with nothing in it is silently retried
+ * over a year rather than left looking empty.
  */
 const SPAN_DAYS = 30;
 const WIDER_DAYS = 400;
@@ -153,12 +156,12 @@ export function WalletBrowser({ initial }: { initial?: string }) {
 
   if (replay) {
     return (
-      <div className="hl-fade flex flex-col gap-4">
+      <div className="hl-fade flex flex-col gap-3">
         <button
           onClick={() => setReplay(null)}
-          className="flex w-fit items-center gap-1.5 text-[12px] text-muted transition-colors duration-[120ms] hover:text-tx"
+          className="flex w-fit items-center gap-1.5 text-[11px] text-muted transition-colors duration-[120ms] hover:text-tx"
         >
-          <span aria-hidden>←</span> all positions
+          <span aria-hidden>←</span> All positions
         </button>
         <Replay data={replay} />
       </div>
@@ -166,12 +169,14 @@ export function WalletBrowser({ initial }: { initial?: string }) {
   }
 
   const busy = phase.k === "loading";
+  /** On a wallet route the address is already in the nav, so the hero form is redundant. */
+  const showForm = !initial;
 
   return (
-    <div className="flex flex-col gap-5">
-      <form onSubmit={submit} className="flex flex-col gap-2.5">
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <div className="flex h-[38px] flex-1 items-center rounded-[8px] border border-border px-3.5 transition-colors duration-[120ms] focus-within:border-muted hover:border-muted">
+    <div className="flex flex-col gap-3">
+      {showForm && (
+        <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row">
+          <div className="flex h-[42px] flex-1 items-center rounded-[8px] border border-border px-4 transition-colors duration-[120ms] focus-within:border-accent-soft hover:border-muted">
             <input
               value={address}
               onChange={(e) => setAddress(e.target.value)}
@@ -179,20 +184,20 @@ export function WalletBrowser({ initial }: { initial?: string }) {
               spellCheck={false}
               autoComplete="off"
               aria-label="Hyperliquid address"
-              className="min-w-0 flex-1 bg-transparent text-[12px] text-tx outline-none placeholder:text-faint"
+              className="min-w-0 flex-1 bg-transparent text-[13px] text-tx outline-none placeholder:text-faint"
             />
           </div>
           <button
             type="submit"
             disabled={busy}
-            className="h-[38px] rounded-[8px] bg-accent-soft px-6 text-[12px] text-accent-text transition-[filter,transform] duration-[120ms] hover:brightness-105 active:scale-[0.99] disabled:bg-accent-dim disabled:text-muted"
+            className="h-[42px] rounded-[8px] bg-accent-soft px-7 text-[12px] text-accent-text transition-[filter,transform] duration-[120ms] hover:brightness-105 active:scale-[0.99] disabled:bg-accent-dim disabled:text-muted"
           >
             {busy ? "Loading" : "Run it back"}
           </button>
-        </div>
-      </form>
+        </form>
+      )}
 
-      {busy && <TableSkeleton note={phase.note} />}
+      {busy && <LoadingPanel note={phase.note} />}
 
       {phase.k === "error" && (
         <div className="hl-fade rounded-[8px] border border-error/40 bg-error/10 px-3.5 py-2.5 text-[12px] text-error">
@@ -201,30 +206,88 @@ export function WalletBrowser({ initial }: { initial?: string }) {
       )}
 
       {phase.k === "ready" && eps.length === 0 && (
-        <p className="rounded-[8px] border border-border px-4 py-5 text-[12px] text-faint">
-          No trades found for that wallet.
-        </p>
+        <Panel>
+          <p className="py-8 text-center text-[12px] text-faint">
+            No trades found for that wallet.
+          </p>
+        </Panel>
       )}
 
       {!busy && eps.length > 0 && (
-        <EpisodeTable eps={eps} markets={markets} onOpen={open} opening={opening} />
+        <div className="hl-fade flex flex-col gap-3">
+          <Summary eps={eps} />
+          <EpisodeTable eps={eps} markets={markets} onOpen={open} opening={opening} />
+        </div>
       )}
     </div>
   );
 }
 
-function TableSkeleton({ note }: { note: string }) {
+function LoadingPanel({ note }: { note: string }) {
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center gap-2 text-[11px] text-faint">
-        <span className="inline-block h-1.5 w-1.5 animate-[hl-pulse_1.2s_ease-in-out_infinite] rounded-full bg-accent-soft" />
-        {note}
-      </div>
-      <div className="flex flex-col gap-px overflow-hidden rounded-[8px]">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="hl-skeleton h-[42px] rounded-none" />
+    <Panel
+      label="POSITIONS"
+      aside={
+        <span className="flex items-center gap-2 text-faint">
+          <span className="inline-block h-1.5 w-1.5 animate-[hl-pulse_1.2s_ease-in-out_infinite] rounded-full bg-accent-soft" />
+          {note}
+        </span>
+      }
+      flush
+    >
+      <div className="flex flex-col">
+        {Array.from({ length: 7 }).map((_, i) => (
+          <div key={i} className="border-b border-divider px-3 py-3 last:border-b-0">
+            <div className="hl-skeleton h-[14px] w-full" />
+          </div>
         ))}
       </div>
+    </Panel>
+  );
+}
+
+/** The wallet at a glance, the way the terminal opens with an account summary. */
+function Summary({ eps }: { eps: Episode[] }) {
+  const s = useMemo(() => {
+    const closed = eps.filter((e) => !e.open);
+    const net = closed.reduce((sum, e) => sum + e.net, 0);
+    const wins = closed.filter((e) => e.net > 0).length;
+    const best = closed.reduce((m, e) => (e.net > m ? e.net : m), 0);
+    const worst = closed.reduce((m, e) => (e.net < m ? e.net : m), 0);
+    return {
+      count: eps.length,
+      open: eps.filter((e) => e.open).length,
+      closed: closed.length,
+      net,
+      rate: closed.length > 0 ? wins / closed.length : 0,
+      wins,
+      best,
+      worst,
+      volume: eps.reduce((sum, e) => sum + e.peakNotional, 0),
+      liquidations: eps.filter((e) => e.liquidated).length,
+    };
+  }, [eps]);
+
+  return (
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[8px] border border-border bg-border sm:grid-cols-3 lg:grid-cols-6">
+      <Metric
+        label="POSITIONS"
+        value={String(s.count)}
+        sub={s.open > 0 ? `${s.open} still open` : `${s.closed} closed`}
+      />
+      <Metric label="NET" value={signedUsd(s.net)} tone={s.net} sub="closed only" />
+      <Metric
+        label="WIN RATE"
+        value={s.closed > 0 ? `${Math.round(s.rate * 100)}%` : "–"}
+        sub={s.closed > 0 ? `${s.wins} of ${s.closed}` : undefined}
+      />
+      <Metric label="BEST" value={signedUsd(s.best)} tone={s.best} />
+      <Metric label="WORST" value={signedUsd(s.worst)} tone={s.worst} />
+      <Metric
+        label="SIZE TRADED"
+        value={usdCompact(s.volume)}
+        sub={s.liquidations > 0 ? `${s.liquidations} liquidated` : "peak notional"}
+      />
     </div>
   );
 }
@@ -240,35 +303,37 @@ function EpisodeTable({
   onOpen: (ep: Episode) => void;
   opening: string | null;
 }) {
-  const windows = eps.map((e) => pickWindow(e.start, e.end));
+  const windows = useMemo(() => eps.map((e) => pickWindow(e.start, e.end)), [eps]);
   const drawable = windows.filter(Boolean).length;
 
   return (
-    <div className="hl-fade flex flex-col gap-2">
-      <div className="flex items-baseline justify-between text-[11px] text-faint">
-        <span>
-          {eps.length} position{eps.length === 1 ? "" : "s"} · {drawable} replayable
+    <Panel
+      label="POSITIONS"
+      aside={
+        <span className="text-faint">
+          {drawable} of {eps.length} replayable · ranked by what was at stake
         </span>
-        <span>ranked by what was at stake</span>
-      </div>
-
-      <div className="scrollers overflow-x-auto rounded-[8px] border border-border">
-        <table className="w-full min-w-[680px] border-collapse text-[12px]">
+      }
+      flush
+    >
+      <div className="scrollers overflow-x-auto">
+        <table className="w-full min-w-[720px] border-collapse text-[12px]">
           <thead>
-            <tr className="border-b border-border text-[10px] tracking-[0.06em] text-faint">
-              <th className="px-3.5 py-2.5 text-left font-normal">MARKET</th>
-              <th className="px-3.5 py-2.5 text-left font-normal">OPENED</th>
-              <th className="px-3.5 py-2.5 text-right font-normal">HELD</th>
-              <th className="px-3.5 py-2.5 text-right font-normal">SIZE</th>
-              <th className="px-3.5 py-2.5 text-right font-normal">NET</th>
-              <th className="px-3.5 py-2.5 text-right font-normal">RETURN</th>
-              <th className="px-3.5 py-2.5 text-right font-normal"></th>
+            <tr className="border-b border-border text-[10px] tracking-[0.08em] text-faint">
+              <th className="px-3 py-2 text-left font-normal">MARKET</th>
+              <th className="px-3 py-2 text-left font-normal">OPENED</th>
+              <th className="px-3 py-2 text-right font-normal">HELD</th>
+              <th className="px-3 py-2 text-right font-normal">SIZE</th>
+              <th className="px-3 py-2 text-right font-normal">NET</th>
+              <th className="px-3 py-2 text-right font-normal">RETURN</th>
+              <th className="px-3 py-2 text-right font-normal"></th>
             </tr>
           </thead>
           <tbody>
             {eps.map((ep, i) => {
               const w = windows[i];
               const kind = kindOf(ep.coin, markets);
+              const label = labelFor(ep.coin, markets);
               const roe = ep.peakNotional > 0 ? ep.net / ep.peakNotional : 0;
               const tone = ep.side === "LONG" ? UP : ep.side === "SHORT" ? DOWN : FLIPPED;
               const dead = !w;
@@ -277,60 +342,63 @@ function EpisodeTable({
                 <tr
                   key={ep.id}
                   onClick={() => w && onOpen(ep)}
-                  className={`border-b border-divider transition-colors duration-[120ms] last:border-b-0 ${
+                  className={`group border-b border-divider transition-colors duration-[120ms] last:border-b-0 ${
                     dead ? "opacity-45" : "cursor-pointer hover:bg-inset/40"
                   }`}
                 >
-                  <td className="px-3.5 py-2.5">
+                  <td className="px-3 py-2.5">
                     <div className="flex items-center gap-2">
-                      <span className="text-tx">{labelFor(ep.coin, markets)}</span>
-                      <span className="text-[10px] tracking-[0.06em]" style={{ color: tone }}>
+                      <CoinIcon coin={ep.coin} label={label} size={16} />
+                      <span className="text-tx">{label}</span>
+                      <span className="text-[10px] tracking-[0.08em]" style={{ color: tone }}>
                         {ep.side}
                       </span>
                       {kind !== "perp" && (
-                        <span className="text-[9px] tracking-[0.06em] text-faint">
+                        <span className="text-[9px] tracking-[0.08em] text-faint">
                           {kind === "spot" ? "SPOT" : "HIP-3"}
                         </span>
                       )}
                       {ep.liquidated && (
-                        <span className="rounded-[4px] bg-error/15 px-1.5 py-px text-[9px] tracking-[0.06em] text-error">
+                        <span className="rounded-[4px] bg-error/15 px-1.5 py-px text-[9px] tracking-[0.08em] text-error">
                           LIQ
                         </span>
                       )}
                       {ep.open && (
-                        <span className="rounded-[4px] border border-border px-1.5 py-px text-[9px] tracking-[0.06em] text-faint">
+                        <span className="rounded-[4px] border border-border px-1.5 py-px text-[9px] tracking-[0.08em] text-faint">
                           OPEN
                         </span>
                       )}
                     </div>
                   </td>
-                  <td className="px-3.5 py-2.5 text-muted">{when(ep.start)}</td>
-                  <td className="px-3.5 py-2.5 text-right text-muted">
+                  <td className="px-3 py-2.5 text-muted">{when(ep.start)}</td>
+                  <td className="px-3 py-2.5 text-right text-muted">
                     {ep.open ? "–" : duration(ep.end - ep.start)}
                   </td>
-                  <td className="px-3.5 py-2.5 text-right text-muted">
+                  <td className="px-3 py-2.5 text-right text-muted">
                     {usdCompact(ep.peakNotional)}
                   </td>
                   <td
-                    className="px-3.5 py-2.5 text-right"
-                    style={{ color: ep.open ? "#9aa3a48c" : ep.net >= 0 ? UP : DOWN }}
+                    className="px-3 py-2.5 text-right"
+                    style={{ color: ep.open ? FAINT : ep.net >= 0 ? UP : DOWN }}
                   >
                     {ep.open ? "–" : signedUsd(ep.net)}
                   </td>
                   <td
-                    className="px-3.5 py-2.5 text-right"
-                    style={{ color: ep.open ? "#9aa3a48c" : roe >= 0 ? UP : DOWN }}
+                    className="px-3 py-2.5 text-right"
+                    style={{ color: ep.open ? FAINT : roe >= 0 ? UP : DOWN }}
                   >
                     {ep.open ? "–" : pct(roe)}
                   </td>
-                  <td className="whitespace-nowrap px-3.5 py-2.5 text-right">
+                  <td className="whitespace-nowrap px-3 py-2.5 text-right">
                     {w ? (
                       <span
                         className={`text-[11px] transition-colors duration-[120ms] ${
-                          opening === ep.id ? "text-accent" : "text-faint"
+                          opening === ep.id
+                            ? "text-accent"
+                            : "text-faint group-hover:text-accent-soft"
                         }`}
                       >
-                        {opening === ep.id ? "Drawing…" : `Watch · ${w.bars} ${w.interval}`}
+                        {opening === ep.id ? "Drawing…" : "Watch →"}
                       </span>
                     ) : (
                       <span
@@ -347,6 +415,6 @@ function EpisodeTable({
           </tbody>
         </table>
       </div>
-    </div>
+    </Panel>
   );
 }

@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+import { MarketProvider } from "@/components/MarketProvider";
+import { Nav } from "@/components/Nav";
+import { Ticker } from "@/components/Ticker";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -27,10 +30,23 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           rel="stylesheet"
           href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap"
         />
-        {/* Read from the browser, so warm the connection before anything asks for it. */}
+        {/* Read from the browser, so warm both connections before anything asks. */}
         <link rel="preconnect" href="https://api.hyperliquid.xyz" />
+        <link rel="preconnect" href="https://app.hyperliquid.xyz" />
       </head>
-      <body>{children}</body>
+      <body>
+        {/*
+          The chrome is fixed and only the page scrolls, which is how the terminal behaves:
+          the wordmark, the address box and the marks never leave.
+        */}
+        <MarketProvider>
+          <div className="flex h-dvh flex-col overflow-hidden">
+            <Nav />
+            <Ticker />
+            <div className="scrollers min-h-0 flex-1 overflow-y-auto">{children}</div>
+          </div>
+        </MarketProvider>
+      </body>
     </html>
   );
 }

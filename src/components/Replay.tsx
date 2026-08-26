@@ -20,6 +20,8 @@ import { exportClip, FORMATS, type Shape } from "@/lib/export";
 import { save } from "@/lib/record";
 import { play, readMuted, writeMuted } from "@/lib/sound";
 import { clock, duration, pct, price, shortAddress, signedUsd, size } from "@/lib/format";
+import { CoinIcon } from "./CoinIcon";
+import { Panel } from "./Panel";
 
 const GROUND = "#0f1a1e";
 const BORDER = "#273035";
@@ -87,7 +89,7 @@ export function Replay({ data }: { data: ReplayData }) {
     [data.points],
   );
 
-  /** Which bar each fill lands on. Binary search, because a chart can hold 1,200 of them. */
+  /** Which bar a moment falls in. Binary search, because a chart can hold 1,200 of them. */
   const barOf = useCallback(
     (ts: number): number => {
       let lo = 0;
@@ -202,7 +204,10 @@ export function Replay({ data }: { data: ReplayData }) {
         attributionLogo: false,
       },
       grid: { vertLines: { color: "transparent" }, horzLines: { color: "transparent" } },
-      rightPriceScale: { borderColor: "transparent", scaleMargins: { top: 0.18, bottom: 0.18 } },
+      rightPriceScale: {
+        borderColor: "transparent",
+        scaleMargins: { top: 0.18, bottom: 0.18 },
+      },
       timeScale: { visible: false, borderColor: "transparent" },
       crosshair: { mode: 0 },
       handleScroll: false,
@@ -341,6 +346,15 @@ export function Replay({ data }: { data: ReplayData }) {
     else setPlaying((p) => !p);
   }, [done, restart]);
 
+  const toggleMute = useCallback(() => {
+    setMuted((m) => {
+      writeMuted(!m);
+      // Unmuting plays one tick so it is obvious the sound is now on.
+      if (m) play("buy", false);
+      return !m;
+    });
+  }, []);
+
   /* ------------------------------------------------------------ keyboard */
 
   useEffect(() => {
@@ -359,24 +373,29 @@ export function Replay({ data }: { data: ReplayData }) {
         setPlaying(false);
         setCursor((c) => Math.min(bars - 1, c + (e.shiftKey ? 25 : 5)));
       } else if (e.key.toLowerCase() === "m") {
-        setMuted((m) => {
-          writeMuted(!m);
-          return !m;
-        });
+        toggleMute();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggle, bars]);
+  }, [toggle, toggleMute, bars]);
 
   /* -------------------------------------------------------------- render */
 
   const point = data.points[Math.min(cursor, data.points.length - 1)] ?? null;
   const total = done ? data.net : (point?.total ?? 0);
   const held = duration(data.candles[bars - 1]!.t - data.candles[0]!.t);
+  const sideTone = data.side === "LONG" ? UP : data.side === "SHORT" ? DOWN : ACCENT;
 
   const recent = useMemo(() => {
-    const out: { key: string; isBuy: boolean; liq: boolean; dir: string; usd: number; px: number }[] = [];
+    const out: {
+      key: string;
+      isBuy: boolean;
+      liq: boolean;
+      dir: string;
+      usd: number;
+      px: number;
+    }[] = [];
     for (let b = Math.max(0, cursor - Math.ceil(bars / 24)); b <= cursor; b += 1) {
       for (const f of fillsAtBar.get(b) ?? []) {
         out.push({
@@ -394,200 +413,214 @@ export function Replay({ data }: { data: ReplayData }) {
 
   return (
     <div className="flex flex-col gap-3">
-      {/* ------------------------------------------------------------ head */}
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2.5">
-            <span className="text-[20px] leading-none text-title">{data.label}</span>
-            <span
-              className="text-[10px] tracking-[0.08em]"
-              style={{ color: data.side === "LONG" ? UP : data.side === "SHORT" ? DOWN : ACCENT }}
-            >
-              {data.side}
-            </span>
-            {data.liquidated && (
-              <span className="rounded-[4px] bg-error/15 px-1.5 py-0.5 text-[9px] tracking-[0.08em] text-error">
-                LIQUIDATED
-              </span>
-            )}
-            {data.open && (
-              <span className="rounded-[4px] border border-border px-1.5 py-0.5 text-[9px] tracking-[0.08em] text-faint">
-                OPEN
-              </span>
-            )}
-          </div>
-          <span className="text-[11px] text-faint">
-            {shortAddress(data.wallet, 6)} · held {held} · {bars} × {data.interval}
-          </span>
-        </div>
-
-        <div className="flex flex-col items-end gap-0.5">
-          <span
-            className="text-[30px] leading-none tabular-nums"
-            style={{ color: total >= 0 ? UP : DOWN }}
+      <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_272px]">
+        {/* --------------------------------------------------- chart column */}
+        <div className="flex min-w-0 flex-col gap-3">
+          <Panel
+            label={undefined}
+            flush
+            className="min-w-0"
           >
-            {signedUsd(total)}
-          </span>
-          <span className="text-[11px] text-faint">
-            {point && Math.abs(point.qty) > 1e-9
-              ? `${size(Math.abs(point.qty))} @ ${price(data.avgEntry)}`
-              : "flat"}
-          </span>
-        </div>
-      </div>
+            {/* The market header, the way the terminal sits one above its chart. */}
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3 py-2.5">
+              <div className="flex items-center gap-2.5">
+                <CoinIcon coin={data.coin} label={data.label} size={20} />
+                <span className="text-[15px] leading-none text-title">{data.label}</span>
+                <span
+                  className="text-[10px] tracking-[0.08em]"
+                  style={{ color: sideTone }}
+                >
+                  {data.side}
+                </span>
+                {data.liquidated && (
+                  <span className="rounded-[4px] bg-error/15 px-1.5 py-0.5 text-[9px] tracking-[0.08em] text-error">
+                    LIQUIDATED
+                  </span>
+                )}
+                {data.open && (
+                  <span className="rounded-[4px] border border-border px-1.5 py-0.5 text-[9px] tracking-[0.08em] text-faint">
+                    OPEN
+                  </span>
+                )}
+                <span className="hidden text-[11px] text-faint sm:inline">
+                  {shortAddress(data.wallet, 6)} · {held} · {bars} × {data.interval}
+                </span>
+              </div>
 
-      {/* ----------------------------------------------------------- chart */}
-      <div className="relative overflow-hidden rounded-[12px] border border-border">
-        <div ref={priceRef} className="h-[320px] w-full sm:h-[400px]" />
-
-        <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1.5">
-          {recent.map((f) => (
-            <div
-              key={f.key}
-              className="hl-rise rounded-[6px] px-2 py-1 text-[11px] backdrop-blur-[2px]"
-              style={{
-                background: f.liq ? "#97fce41f" : f.isBuy ? "#50d2c11f" : "#ed70881f",
-                color: f.liq ? ACCENT : f.isBuy ? UP : DOWN,
-              }}
-            >
-              {f.liq ? "LIQUIDATED · " : ""}
-              {f.dir} · {signedUsd(f.usd).slice(1)} @ {price(f.px)}
+              <div className="flex items-baseline gap-2.5">
+                <span className="text-[10px] tracking-[0.08em] text-faint">PNL</span>
+                <span
+                  className="text-[22px] leading-none tabular-nums"
+                  style={{ color: total >= 0 ? UP : DOWN }}
+                >
+                  {signedUsd(total)}
+                </span>
+              </div>
             </div>
-          ))}
-        </div>
 
-        {done && (
-          <div className="hl-fade pointer-events-none absolute inset-0 flex items-center justify-center bg-ground/70 backdrop-blur-[1px]">
-            <div className="flex flex-col items-center gap-1.5">
-              <span className="text-[10px] tracking-[0.22em] text-faint">
-                {data.liquidated ? "LIQUIDATED" : "CLOSED"}
-              </span>
-              <span
-                className="text-[44px] leading-none"
-                style={{ color: data.net >= 0 ? UP : DOWN }}
+            <div className="relative">
+              <div ref={priceRef} className="h-[330px] w-full sm:h-[420px]" />
+
+              <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1.5">
+                {recent.map((f) => (
+                  <div
+                    key={f.key}
+                    className="hl-rise rounded-[6px] px-2 py-1 text-[11px] backdrop-blur-[2px]"
+                    style={{
+                      background: f.liq
+                        ? "#97fce41f"
+                        : f.isBuy
+                          ? "#50d2c11f"
+                          : "#ed70881f",
+                      color: f.liq ? ACCENT : f.isBuy ? UP : DOWN,
+                    }}
+                  >
+                    {f.liq ? "LIQUIDATED · " : ""}
+                    {f.dir} · {signedUsd(f.usd).slice(1)} @ {price(f.px)}
+                  </div>
+                ))}
+              </div>
+
+              <div className="pointer-events-none absolute bottom-3 left-3 text-[11px] text-faint">
+                {point && Math.abs(point.qty) > 1e-9
+                  ? `${size(Math.abs(point.qty))} @ ${price(data.avgEntry)}`
+                  : "flat"}
+              </div>
+
+              {done && (
+                <div className="hl-fade pointer-events-none absolute inset-0 flex items-center justify-center bg-ground/70 backdrop-blur-[1px]">
+                  <div className="flex flex-col items-center gap-1.5">
+                    <span className="text-[10px] tracking-[0.22em] text-faint">
+                      {data.liquidated ? "LIQUIDATED" : "CLOSED"}
+                    </span>
+                    <span
+                      className="text-[44px] leading-none"
+                      style={{ color: data.net >= 0 ? UP : DOWN }}
+                    >
+                      {signedUsd(data.net)}
+                    </span>
+                    <span className="text-[12px] text-muted">
+                      {pct(data.roe)} · fees {signedUsd(-data.fees)}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* ------------------------------------------------- transport */}
+            <div className="flex flex-wrap items-center gap-2.5 border-t border-border px-3 py-2.5">
+              <button
+                onClick={toggle}
+                className="h-[28px] rounded-[8px] bg-accent-soft px-4 text-[11px] text-accent-text transition-[filter,transform] duration-[120ms] hover:brightness-105 active:scale-[0.99]"
               >
-                {signedUsd(data.net)}
-              </span>
-              <span className="text-[12px] text-muted">
-                {pct(data.roe)} · fees {signedUsd(-data.fees)}
+                {done ? "Run it back" : playing ? "Pause" : "Play"}
+              </button>
+
+              <div className="flex items-center gap-0.5 rounded-[8px] border border-border p-0.5">
+                {SPEEDS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setSpeed(s)}
+                    className={`rounded-[6px] px-2 py-0.5 text-[11px] transition-colors duration-[120ms] ${
+                      speed === s ? "bg-inset text-tx" : "text-faint hover:text-muted"
+                    }`}
+                  >
+                    {s}×
+                  </button>
+                ))}
+              </div>
+
+              <button
+                onClick={toggleMute}
+                title="Mute (M)"
+                aria-label={muted ? "Unmute" : "Mute"}
+                className={`grid h-[28px] w-[28px] place-items-center rounded-[8px] border border-border transition-colors duration-[120ms] hover:border-muted ${
+                  muted ? "text-faint" : "text-accent"
+                }`}
+              >
+                <SpeakerIcon muted={muted} />
+              </button>
+
+              <input
+                type="range"
+                min={0}
+                max={Math.max(0, bars - 1)}
+                value={cursor}
+                onChange={(e) => {
+                  setPlaying(false);
+                  setCursor(Number(e.target.value));
+                }}
+                className="h-1 min-w-[120px] flex-1 accent-[#97fce4]"
+                aria-label="Scrub"
+              />
+
+              <span className="w-[40px] shrink-0 text-right text-[11px] text-faint">
+                {clock(data.candles[Math.min(cursor, bars - 1)]!.t)}
               </span>
             </div>
-          </div>
-        )}
-      </div>
+          </Panel>
 
-      {/* ------------------------------------------------------------- pnl */}
-      <div className="overflow-hidden rounded-[12px] border border-border">
-        <div className="flex items-center justify-between px-3.5 pt-2.5 text-[10px] tracking-[0.06em] text-faint">
-          <span>RUNNING PNL</span>
-          <span>
-            best {signedUsd(data.peak)} · worst {signedUsd(data.trough)}
-          </span>
-        </div>
-        <div ref={pnlRef} className="h-[80px] w-full" />
-      </div>
-
-      {/* ------------------------------------------------------- transport */}
-      <div className="flex flex-wrap items-center gap-2.5 rounded-[12px] border border-border px-3.5 py-2.5">
-        <button
-          onClick={toggle}
-          className="h-[30px] rounded-[8px] bg-accent-soft px-4 text-[12px] text-accent-text transition-[filter,transform] duration-[120ms] hover:brightness-105 active:scale-[0.99]"
-        >
-          {done ? "Run it back" : playing ? "Pause" : "Play"}
-        </button>
-
-        <div className="flex items-center gap-0.5 rounded-[8px] border border-border p-0.5">
-          {SPEEDS.map((s) => (
-            <button
-              key={s}
-              onClick={() => setSpeed(s)}
-              className={`rounded-[6px] px-2 py-0.5 text-[11px] transition-colors duration-[120ms] ${
-                speed === s ? "bg-inset text-tx" : "text-faint hover:text-muted"
-              }`}
-            >
-              {s}×
-            </button>
-          ))}
+          <Panel
+            label="RUNNING PNL"
+            aside={
+              <span className="text-faint">
+                best {signedUsd(data.peak)} · worst {signedUsd(data.trough)}
+              </span>
+            }
+            flush
+          >
+            <div ref={pnlRef} className="h-[92px] w-full" />
+          </Panel>
         </div>
 
-        <button
-          onClick={() =>
-            setMuted((m) => {
-              writeMuted(!m);
-              if (m) play("buy", false);
-              return !m;
-            })
-          }
-          title="Mute (M)"
-          aria-label={muted ? "Unmute" : "Mute"}
-          className={`h-[30px] w-[30px] rounded-[8px] border border-border text-[12px] transition-colors duration-[120ms] hover:border-muted ${
-            muted ? "text-faint" : "text-accent"
-          }`}
-        >
-          {muted ? "🔇" : "🔊"}
-        </button>
+        {/* ----------------------------------------------------- right rail */}
+        <div className="flex min-w-0 flex-col gap-3">
+          <Panel label="POSITION" flush>
+            <dl className="flex flex-col">
+              <Row label="Realized" value={signedUsd(data.realized)} tone={data.realized} />
+              <Row label="Fees" value={`−$${data.fees.toFixed(2)}`} />
+              <Row label="Net" value={signedUsd(data.net)} tone={data.net} />
+              <Row label="Return" value={pct(data.roe)} tone={data.roe} />
+              <Row label="Entry" value={price(data.avgEntry)} />
+              <Row label="Held" value={held} />
+              <Row label="Fills" value={String(data.fills.length)} />
+            </dl>
+          </Panel>
 
-        <input
-          type="range"
-          min={0}
-          max={Math.max(0, bars - 1)}
-          value={cursor}
-          onChange={(e) => {
-            setPlaying(false);
-            setCursor(Number(e.target.value));
-          }}
-          className="h-1 min-w-[140px] flex-1 accent-[#97fce4]"
-          aria-label="Scrub"
-        />
+          <Export data={data} />
 
-        <span className="w-[42px] text-right text-[11px] text-faint">
-          {clock(data.candles[Math.min(cursor, bars - 1)]!.t)}
-        </span>
+          {data.truncatedStart && (
+            <p className="rounded-[8px] border border-accent/30 bg-accent/5 px-3 py-2.5 text-[11px] leading-relaxed text-accent">
+              Already open when the window began, so the entries are off the chart. The exit
+              is exact; the running total before it is not.
+            </p>
+          )}
+
+          <p className="px-1 text-[10px] leading-relaxed text-faint">
+            Space to play · arrows to scrub · M to mute
+          </p>
+        </div>
       </div>
-
-      {/* ------------------------------------------------------------ stats */}
-      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[12px] border border-border bg-border sm:grid-cols-4">
-        <Stat label="REALIZED" value={signedUsd(data.realized)} tone={data.realized} />
-        <Stat label="FEES" value={`−$${data.fees.toFixed(2)}`} />
-        <Stat label="NET" value={signedUsd(data.net)} tone={data.net} />
-        <Stat label="RETURN" value={pct(data.roe)} tone={data.roe} />
-      </div>
-
-      <Export data={data} />
-
-      {data.truncatedStart && (
-        <p className="text-[11px] leading-relaxed text-accent">
-          This position was already open when the window began, so the entries are not on
-          the chart. The exit is exact; the running total before it is not.
-        </p>
-      )}
-
-      <p className="text-[11px] text-faint">
-        Space to play, arrows to scrub, M to mute.
-      </p>
 
       {/* ------------------------------------------------------------ fills */}
-      <details className="rounded-[12px] border border-border">
-        <summary className="cursor-pointer list-none px-3.5 py-2.5 text-[11px] text-muted transition-colors duration-[120ms] hover:text-tx">
-          {data.fills.length} fill{data.fills.length === 1 ? "" : "s"}
-        </summary>
-        <div className="scrollers max-h-[280px] overflow-auto border-t border-border">
-          <table className="w-full min-w-[500px] border-collapse text-[11px]">
+      <Panel label="FILLS" aside={<span className="text-faint">{data.fills.length}</span>} flush>
+        <div className="scrollers max-h-[260px] overflow-auto">
+          <table className="w-full min-w-[520px] border-collapse text-[11px]">
             <tbody>
               {data.fills.map((f) => (
                 <tr key={f.tid} className="border-b border-divider last:border-b-0">
-                  <td className="px-3.5 py-2 text-faint">{clock(f.time)}</td>
+                  <td className="px-3 py-2 text-faint">{clock(f.time)}</td>
                   <td
-                    className="px-3.5 py-2"
+                    className="px-3 py-2"
                     style={{ color: f.liquidation ? ACCENT : f.side === "B" ? UP : DOWN }}
                   >
                     {f.liquidation ? "LIQ " : ""}
                     {f.dir}
                   </td>
-                  <td className="px-3.5 py-2 text-right text-muted">{size(f.sz)}</td>
-                  <td className="px-3.5 py-2 text-right text-muted">{price(f.px)}</td>
+                  <td className="px-3 py-2 text-right text-muted">{size(f.sz)}</td>
+                  <td className="px-3 py-2 text-right text-muted">{price(f.px)}</td>
                   <td
-                    className="px-3.5 py-2 text-right"
+                    className="px-3 py-2 text-right"
                     style={{
                       color: f.closedPnl === 0 ? "#9aa3a48c" : f.closedPnl > 0 ? UP : DOWN,
                     }}
@@ -599,20 +632,45 @@ export function Replay({ data }: { data: ReplayData }) {
             </tbody>
           </table>
         </div>
-      </details>
+      </Panel>
     </div>
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: number }) {
+function Row({ label, value, tone }: { label: string; value: string; tone?: number }) {
   const color = tone === undefined ? "#f6fefd" : tone >= 0 ? UP : DOWN;
   return (
-    <div className="bg-ground px-3.5 py-2.5">
-      <div className="text-[10px] tracking-[0.06em] text-faint">{label}</div>
-      <div className="mt-1 text-[14px] tabular-nums" style={{ color }}>
+    <div className="flex items-baseline justify-between gap-3 border-b border-divider px-3 py-2 last:border-b-0">
+      <dt className="text-[11px] text-faint">{label}</dt>
+      <dd className="text-[12px] tabular-nums" style={{ color }}>
         {value}
-      </div>
+      </dd>
     </div>
+  );
+}
+
+function SpeakerIcon({ muted }: { muted: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      className="h-[13px] w-[13px]"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      <path d="M3 6.2h2.2L8.4 3.6v8.8L5.2 9.8H3z" />
+      {muted ? (
+        <path d="M10.8 6.4l3 3.2M13.8 6.4l-3 3.2" />
+      ) : (
+        <>
+          <path d="M10.8 6.1a2.6 2.6 0 0 1 0 3.8" />
+          <path d="M12.6 4.6a5 5 0 0 1 0 6.8" />
+        </>
+      )}
+    </svg>
   );
 }
 
@@ -652,15 +710,15 @@ function Export({ data }: { data: ReplayData }) {
   }, [data, shape]);
 
   return (
-    <div className="flex flex-col gap-2 rounded-[12px] border border-border px-3.5 py-2.5">
-      <div className="flex flex-wrap items-center gap-2.5">
-        <div className="flex items-center gap-0.5 rounded-[8px] border border-border p-0.5">
+    <Panel label="EXPORT">
+      <div className="flex flex-col gap-2.5">
+        <div className="grid grid-cols-3 gap-0.5 rounded-[8px] border border-border p-0.5">
           {(Object.keys(FORMATS) as Shape[]).map((s) => (
             <button
               key={s}
               onClick={() => setShape(s)}
               disabled={busy}
-              className={`rounded-[6px] px-2 py-0.5 text-[11px] transition-colors duration-[120ms] ${
+              className={`rounded-[6px] py-1 text-[11px] transition-colors duration-[120ms] ${
                 shape === s ? "bg-inset text-tx" : "text-faint hover:text-muted"
               }`}
             >
@@ -671,26 +729,26 @@ function Export({ data }: { data: ReplayData }) {
 
         <button
           onClick={busy ? () => (cancelled.current = true) : run}
-          className="h-[30px] rounded-[8px] border border-border px-4 text-[12px] text-tx transition-colors duration-[120ms] hover:border-muted"
+          className="h-[30px] rounded-[8px] border border-border text-[11px] text-tx transition-colors duration-[120ms] hover:border-accent-soft hover:text-accent"
         >
           {busy ? `Cancel · ${Math.round(progress * 100)}%` : "Export MP4"}
         </button>
 
-        <span className="text-[11px] text-faint">
-          {FORMATS[shape].w}×{FORMATS[shape].h}, rendered in your browser
-        </span>
+        {busy ? (
+          <div className="h-[3px] w-full overflow-hidden rounded-full bg-inset">
+            <div
+              className="h-full bg-accent transition-[width] duration-150"
+              style={{ width: `${progress * 100}%` }}
+            />
+          </div>
+        ) : (
+          <p className="text-[10px] text-faint">
+            {FORMATS[shape].w}×{FORMATS[shape].h}, rendered in your browser
+          </p>
+        )}
+
+        {error && <p className="text-[11px] text-error">{error}</p>}
       </div>
-
-      {busy && (
-        <div className="h-[3px] w-full overflow-hidden rounded-full bg-inset">
-          <div
-            className="h-full bg-accent transition-[width] duration-150"
-            style={{ width: `${progress * 100}%` }}
-          />
-        </div>
-      )}
-
-      {error && <p className="text-[11px] text-error">{error}</p>}
-    </div>
+    </Panel>
   );
 }

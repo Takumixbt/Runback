@@ -77,13 +77,36 @@ async function ctxs(dex?: string): Promise<Mark[]> {
  * separately so a quiet day in equities cannot push them off entirely, which is half the
  * point of showing them.
  */
-export async function marks(crypto = 14, equities = 8): Promise<Mark[]> {
+export interface Board {
+  marks: Mark[];
+  /** Everything the two calls saw, not just what the ticker shows. */
+  markets: number;
+  dayVolume: number;
+  /** Biggest movers on the day, either direction, among markets with real turnover. */
+  movers: Mark[];
+}
+
+/** Below this a percentage move is noise on a market nobody is trading. */
+const MOVER_MIN_VLM = 2_000_000;
+
+export async function board(crypto = 14, equities = 8): Promise<Board> {
   const [main, xyz] = await Promise.allSettled([ctxs(), ctxs("xyz")]);
 
   const byVolume = (a: Mark, b: Mark) => b.vlm - a.vlm;
+  const all = [
+    ...(main.status === "fulfilled" ? main.value : []),
+    ...(xyz.status === "fulfilled" ? xyz.value : []),
+  ];
   const top = (r: PromiseSettledResult<Mark[]>, k: number) =>
-    r.status === "fulfilled" ? r.value.sort(byVolume).slice(0, k) : [];
+    r.status === "fulfilled" ? [...r.value].sort(byVolume).slice(0, k) : [];
 
-  const rows = [...top(main, crypto), ...top(xyz, equities)];
-  return rows.sort(byVolume);
+  return {
+    marks: [...top(main, crypto), ...top(xyz, equities)].sort(byVolume),
+    markets: all.length,
+    dayVolume: all.reduce((sum, m) => sum + m.vlm, 0),
+    movers: all
+      .filter((m) => m.vlm >= MOVER_MIN_VLM)
+      .sort((a, b) => Math.abs(b.change) - Math.abs(a.change))
+      .slice(0, 6),
+  };
 }
