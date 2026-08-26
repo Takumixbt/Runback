@@ -273,21 +273,15 @@ function Summary({ eps }: { eps: Episode[] }) {
       <Metric
         label="POSITIONS"
         value={String(s.count)}
-        sub={s.open > 0 ? `${s.open} still open` : `${s.closed} closed`}
-      />
-      <Metric label="NET" value={signedUsd(s.net)} tone={s.net} sub="closed only" />
+        />
+      <Metric label="NET" value={signedUsd(s.net)} tone={s.net} />
       <Metric
         label="WIN RATE"
         value={s.closed > 0 ? `${Math.round(s.rate * 100)}%` : "–"}
-        sub={s.closed > 0 ? `${s.wins} of ${s.closed}` : undefined}
-      />
+/>
       <Metric label="BEST" value={signedUsd(s.best)} tone={s.best} />
       <Metric label="WORST" value={signedUsd(s.worst)} tone={s.worst} />
-      <Metric
-        label="SIZE TRADED"
-        value={usdCompact(s.volume)}
-        sub={s.liquidations > 0 ? `${s.liquidations} liquidated` : "peak notional"}
-      />
+<Metric label="SIZE TRADED" value={usdCompact(s.volume)} />
     </div>
   );
 }
@@ -309,11 +303,7 @@ function EpisodeTable({
   return (
     <Panel
       label="POSITIONS"
-      aside={
-        <span className="text-faint">
-          {drawable} of {eps.length} replayable · ranked by what was at stake
-        </span>
-      }
+      aside={<span className="text-faint">{drawable} of {eps.length} replayable</span>}
       flush
     >
       <div className="scrollers overflow-x-auto">

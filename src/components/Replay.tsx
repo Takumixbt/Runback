@@ -194,10 +194,44 @@ export function Replay({ data }: { data: ReplayData }) {
         fontSize: 11,
         attributionLogo: false,
       },
-      grid: { vertLines: { color: "transparent" }, horzLines: { color: "#ffffff08" } },
-      rightPriceScale: { borderColor: BORDER, scaleMargins: { top: 0.14, bottom: 0.14 } },
-      timeScale: { borderColor: BORDER, timeVisible: true, secondsVisible: false },
-      crosshair: { mode: 0 },
+      /**
+       * Both axes ruled, faintly. The terminal draws a full grid; only horizontals made
+       * the chart look like a widget embedded in something else.
+       */
+      grid: {
+        vertLines: { color: "#ffffff07" },
+        horzLines: { color: "#ffffff07" },
+      },
+      rightPriceScale: {
+        borderColor: BORDER,
+        scaleMargins: { top: 0.12, bottom: 0.12 },
+        entireTextOnly: true,
+      },
+      timeScale: {
+        borderColor: BORDER,
+        timeVisible: true,
+        secondsVisible: false,
+        rightOffset: 2,
+      },
+      /**
+       * A crosshair that reads values, which is the whole reason theirs has one. It was
+       * off, so hovering the chart did nothing and it felt inert next to the real thing.
+       */
+      crosshair: {
+        mode: 1,
+        vertLine: {
+          color: "#9aa3a466",
+          width: 1,
+          style: 2,
+          labelBackgroundColor: BORDER,
+        },
+        horzLine: {
+          color: "#9aa3a466",
+          width: 1,
+          style: 2,
+          labelBackgroundColor: BORDER,
+        },
+      },
       handleScroll: false,
       handleScale: false,
       autoSize: true,
@@ -209,8 +243,12 @@ export function Replay({ data }: { data: ReplayData }) {
       wickUpColor: UP,
       wickDownColor: DOWN,
       borderVisible: false,
-      priceLineVisible: false,
-      lastValueVisible: false,
+      /** The live mark, tagged on the scale, exactly as the terminal carries it. */
+      priceLineVisible: true,
+      priceLineColor: "#9aa3a4",
+      priceLineWidth: 1,
+      priceLineStyle: 2,
+      lastValueVisible: true,
     });
 
     /**
@@ -646,7 +684,7 @@ export function Replay({ data }: { data: ReplayData }) {
             label="RUNNING PNL"
             aside={
               <span className="text-faint">
-                best {signedUsd(data.peak)} · worst {signedUsd(data.trough)}
+                {signedUsd(data.peak)} / {signedUsd(data.trough)}
               </span>
             }
             flush
@@ -674,17 +712,6 @@ export function Replay({ data }: { data: ReplayData }) {
           </Panel>
 
           <Export data={data} />
-
-          {data.truncatedStart && (
-            <p className="rounded-[8px] border border-accent/30 bg-accent/5 px-3 py-2.5 text-[11px] leading-relaxed text-accent">
-              Already open when the window began, so the entries are off the chart. The exit
-              is exact; the running total before it is not.
-            </p>
-          )}
-
-          <p className="px-1 text-[10px] leading-relaxed text-faint">
-            Space to play · arrows to scrub · M to mute
-          </p>
         </div>
       </div>
 
@@ -839,7 +866,7 @@ function Export({ data }: { data: ReplayData }) {
           </div>
         ) : (
           <p className="text-[10px] text-faint">
-            {FORMATS[shape].w}×{FORMATS[shape].h}, rendered in your browser
+            {FORMATS[shape].w}&times;{FORMATS[shape].h}
           </p>
         )}
 

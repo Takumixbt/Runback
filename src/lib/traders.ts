@@ -33,7 +33,7 @@ import { NOTABLE, type Notable } from "./notable";
  */
 const LOOKBACK_DAYS = 400;
 /** Enough to reach real size without walking a market maker's entire tape. */
-const MAX_PAGES = 6;
+const MAX_PAGES = 4;
 
 /**
  * How many traders to read at once, and how long to wait between starts.
@@ -47,8 +47,8 @@ const MAX_PAGES = 6;
  * behave. Two at a time with a gap between starts keeps the whole refresh well inside the
  * budget and costs a few seconds on a cache miss nobody is waiting on.
  */
-const CONCURRENCY = 2;
-const STAGGER_MS = 350;
+const CONCURRENCY = 3;
+const STAGGER_MS = 200;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -133,9 +133,22 @@ async function card(who: Notable, known: Map<string, Market>, now: number): Prom
   }
 }
 
-export const traderCards = unstable_cache(
-  async (): Promise<TraderCard[]> => {
-    if (NOTABLE.length === 0) return [];
+/**
+ * Cached PER TRADER, not per list.
+ *
+ * One cache entry for the whole list meant one slow or throttled wallet took the others
+ * down with it: MEASURED, three of six rendered and the rest simply vanished, because a
+ * batch either succeeds whole or is thrown away whole. Machi and CBB are the heaviest
+ * reads on the list and were the two that kept losing.
+ *
+ * Keyed per address, a failure costs only that row, and the next request retries just that
+ * row while the others answer from cache. The list fills in over a couple of loads instead
+ * of flickering between three names and six.
+ */
+const cachedCard = unstable_cache(
+  async (address: string): Promise<TraderCard | null> => {
+    const who = NOTABLE.find((n) => n.address === address);
+    if (!who) return null;
     const now = Date.now();
 
     let known: Map<string, Market>;
@@ -145,23 +158,20 @@ export const traderCards = unstable_cache(
       known = new Map();
     }
 
-    const settled = await pool(NOTABLE, CONCURRENCY, (n) =>
-      card(n, known, now).catch(() => null),
-    );
-    const cards = settled.filter((c): c is TraderCard => c !== null);
-
-    /**
-     * A short read is not cached.
-     *
-     * Losing most of the list to throttling and then pinning that for five minutes is the
-     * failure this is guarding against. Throwing makes `unstable_cache` discard it and the
-     * next request tries again.
-     */
-    if (cards.length < Math.ceil(NOTABLE.length / 2)) {
-      throw new Error("runback: partial trader read");
-    }
-    return cards.sort((a, b) => (b.best?.net ?? 0) - (a.best?.net ?? 0));
+    const result = await card(who, known, now);
+    // Nothing worth showing is not cached, so a throttled read is retried rather than kept.
+    if (!result.best && !result.worst) throw new Error(`runback: empty ${address}`);
+    return result;
   },
-  ["runback:traders"],
-  { revalidate: 300 },
+  ["runback:trader"],
+  { revalidate: 600 },
 );
+
+export async function traderCards(): Promise<TraderCard[]> {
+  const cards = await pool(NOTABLE, CONCURRENCY, (n) =>
+    cachedCard(n.address).catch(() => null),
+  );
+  return cards
+    .filter((c): c is TraderCard => c !== null)
+    .sort((a, b) => (b.best?.net ?? 0) - (a.best?.net ?? 0));
+}
