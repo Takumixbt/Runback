@@ -42,31 +42,21 @@ const ACCENT = "#97fce4";
 const STEP_MS = 600;
 
 /**
- * How much longer a bar carrying a fill is held, and how far that spreads either side.
+ * Pixels per bar. Trickshot's number, and the only thing deciding how wide a candle looks.
  *
- * The whole point of watching a trade rather than reading its number is the moment the
- * entry lands and the moment it comes off, and a uniform bar rate spends exactly as long
- * on those as on the hour of nothing before them. Short positions suffered worst: forty
- * bars at a flat rate is over before it registers.
- *
- * So quiet stretches move, and the replay slows into every fill and slows hardest into a
- * liquidation. The total is normalised afterwards, so this changes the SHAPE of the
- * playback without making it longer.
+ * Fixed rather than derived from the bar count, so a nine-hundred-bar hold draws the same
+ * candle as a forty-bar scalp and the chart scrolls instead of squeezing.
  */
-const FILL_BOOST = 1.6;
-const LIQ_BOOST = 3;
+const BAR_SPACING = 9;
 
 /**
- * Bars kept in view while the replay runs, and the gap held open ahead of the last one.
+ * Every bar gets the same time. There is no emphasis and that is deliberate.
  *
- * Wide enough to carry the shape of a move, tight enough that a candle is a candle rather
- * than a hair. Anything shorter than this is shown whole and does not scroll.
- *
- * The count is the only thing deciding how big a candle looks, so it is deliberately low.
- * Fitting an entire trade into the panel is what made them read as slivers.
+ * Holding fill bars longer than quiet ones sounded like a good idea and watched terribly:
+ * the replay lurched, ran, lurched again, and read as stuttering rather than as emphasis,
+ * because a viewer has no way to know that the pause means something. A constant rate is
+ * what makes the price action itself the thing that varies.
  */
-const WINDOW_BARS = 95;
-const RIGHT_PAD = 6;
 
 const SPEEDS = [1, 2, 4, 8] as const;
 
@@ -206,34 +196,6 @@ export function Replay({ data }: { data: ReplayData }) {
     return { markers, upto };
   }, [data.fills, data.candles, barOf, wasLiquidated]);
 
-  /**
-   * How long each bar is held, in ms. Slow motion, precomputed.
-   *
-   * Weights rise near any bar that carries a fill and rise further near a forced close,
-   * falling away over a spread that scales with the chart so it reads the same on forty
-   * bars as on twelve hundred. The weights are then scaled so the whole replay lands on a
-   * target duration, which means the emphasis costs nothing in total length.
-   */
-  const dwell = useMemo(() => {
-    const out = new Float32Array(Math.max(bars, 1)).fill(1);
-    if (bars === 0) return out;
-
-    const spread = Math.max(2, Math.round(bars / 45));
-    for (const [bar, at] of fillsAtBar) {
-      const boost = at.some(wasLiquidated) ? LIQ_BOOST : FILL_BOOST;
-      for (let d = -spread; d <= spread; d += 1) {
-        const i = bar + d;
-        if (i < 0 || i >= bars) continue;
-        // Cosine falloff: no seam where the emphasis starts and stops.
-        const fall = 0.5 * (1 + Math.cos((Math.PI * d) / (spread + 1)));
-        out[i] = Math.max(out[i]!, 1 + boost * fall);
-      }
-    }
-
-    for (let i = 0; i < bars; i += 1) out[i] = out[i]! * STEP_MS;
-    return out;
-  }, [bars, fillsAtBar, wasLiquidated]);
-
   /* -------------------------------------------------------------- charts */
 
   useEffect(() => {
@@ -265,7 +227,19 @@ export function Replay({ data }: { data: ReplayData }) {
         borderColor: BORDER,
         timeVisible: true,
         secondsVisible: false,
-        rightOffset: 0,
+        /**
+         * A fixed bar width with room held ahead of the newest bar, and then never touched
+         * again. This is how a live chart behaves and it is what I had been fighting.
+         *
+         * Setting a visible logical range instead meant the first bar was pinned wherever
+         * that range put it, which is why the replay opened with one candle jammed against
+         * an edge and ninety-four bars of nothing beside it. `barSpacing` fixes how wide a
+         * candle is, `rightOffset` leaves half a screen of empty space for the next move to
+         * go into, and `shiftVisibleRangeOnNewBar` scrolls when a bar lands.
+         */
+        barSpacing: BAR_SPACING,
+        rightOffset: Math.round((el.clientWidth || 900) / BAR_SPACING / 2),
+        shiftVisibleRangeOnNewBar: true,
         lockVisibleTimeRangeOnResize: true,
       },
       /**
@@ -326,19 +300,6 @@ export function Replay({ data }: { data: ReplayData }) {
     seriesRef.current = series;
     markersRef.current = createSeriesMarkers(series, []);
     paintedRef.current = -1;
-
-    /**
-     * The window is sized once, here, and then left alone.
-     *
-     * A short replay is framed whole. A long one opens on a window of WINDOW_BARS and the
-     * chart scrolls itself from there, which keeps a candle the width of a candle instead
-     * of squeezing the entire trade into the panel.
-     */
-    chart.timeScale().setVisibleLogicalRange(
-      candleData.length <= WINDOW_BARS
-        ? { from: -RIGHT_PAD / 2, to: candleData.length - 1 + RIGHT_PAD / 2 }
-        : { from: -RIGHT_PAD, to: WINDOW_BARS - RIGHT_PAD },
-    );
 
     return () => {
       chart.remove();
@@ -414,22 +375,33 @@ export function Replay({ data }: { data: ReplayData }) {
       if (!series || !chart || bars === 0) return;
       const i = Math.min(Math.max(index, 0), bars - 1);
 
-      const rewound = i < paintedRef.current;
-      if (rewound) {
-        // Rebuild, which is the only way to remove bars from a series.
-        series.setData(candleData.slice(0, i + 1));
-      } else {
-        // Fill in whole bars for anything skipped, so nothing is left half-drawn.
-        for (let k = paintedRef.current + 1; k < i; k += 1) series.update(candleData[k]!);
+      if (paintedRef.current !== i) {
+        /**
+         * The bar that was forming is history now, so snap it to its real close.
+         *
+         * Leaving it out is what made the whole chart look wrong. Every bar was frozen at
+         * whatever fraction of its move it had reached when the cursor stepped off it, so a
+         * replay left a trail of stunted candles behind the one currently growing. Nothing
+         * on screen was the price.
+         */
+        if (i > 0 && paintedRef.current === i - 1) {
+          series.update(candleData[i - 1]!);
+        } else {
+          /**
+           * Any other jump, forwards or back, rebuilds. `slice(0, i)` and not `i + 1`,
+           * because bar `i` is about to be added by the forming update below; adding it
+           * here and then updating it is what threw "Cannot update oldest data" after a
+           * restart, when the series still held the whole replay and was handed bar zero.
+           */
+          series.setData(candleData.slice(0, i));
+          chart.timeScale().scrollToRealTime();
+        }
+
+        markersRef.current?.setMarkers(allMarkers.slice(0, markersUpto[i] ?? 0));
+        pnlSeriesRef.current?.setData(pnlData.slice(0, i + 1));
+        paintedRef.current = i;
       }
 
-      /**
-       * The bar being lived through, interpolated.
-       *
-       * Open is fixed; close walks from the open toward the real close, and the wick only
-       * extends as far as the body has travelled. Repeatedly updating the SAME timestamp
-       * is exactly what `update` is for, so this costs one call a frame.
-       */
       const bar = candleData[i]!;
       const raw = Math.min(Math.max(frac, 0), 1);
       /** Smoothstep: a linear walk reads mechanical, which is what a slideshow looks like. */
@@ -443,31 +415,6 @@ export function Replay({ data }: { data: ReplayData }) {
         high: Math.max(bar.open, close, bar.open + (bar.high - bar.open) * p),
         low: Math.min(bar.open, close, bar.open + (bar.low - bar.open) * p),
       });
-
-      /**
-       * Following is left to the chart, which already knows how.
-       *
-       * Writing a fractional logical range every frame was the shake: the library resolves
-       * a range to whole pixels, so a window nudged by a hundredth of a bar sixty times a
-       * second lands on a slightly different pixel grid each time and the whole plot
-       * shivers. `shiftVisibleRangeOnNewBar` scrolls by exactly one bar when a bar is
-       * appended, which is what every live chart does and what this needed all along.
-       *
-       * The range is only forced after a rewind, where bars were removed and the window
-       * has to be put back where the cursor is.
-       */
-      if (rewound && bars > WINDOW_BARS) {
-        chart.timeScale().setVisibleLogicalRange({
-          from: i - WINDOW_BARS + RIGHT_PAD,
-          to: i + RIGHT_PAD,
-        });
-      }
-
-      if (i !== paintedRef.current) {
-        markersRef.current?.setMarkers(allMarkers.slice(0, markersUpto[i] ?? 0));
-        pnlSeriesRef.current?.setData(pnlData.slice(0, i + 1));
-      }
-      paintedRef.current = i;
     },
     [bars, candleData, pnlData, allMarkers, markersUpto],
   );
@@ -537,14 +484,13 @@ export function Replay({ data }: { data: ReplayData }) {
       last = now;
 
       let c = cursorRef.current;
-      // A bar at a time, so a long frame crosses several without skipping their dwell.
-      while (c < bars - 1 && acc >= (dwell[c] ?? 16)) {
-        acc -= dwell[c] ?? 16;
+      // A bar at a time, so a long frame crosses several without skipping any.
+      while (c < bars - 1 && acc >= STEP_MS) {
+        acc -= STEP_MS;
         c += 1;
       }
 
-      const held = dwell[c] ?? 16;
-      paintTo(c, c >= bars - 1 ? 1 : acc / held);
+      paintTo(c, c >= bars - 1 ? 1 : acc / STEP_MS);
 
       if (c !== cursorRef.current) {
         cursorRef.current = c;
@@ -559,7 +505,7 @@ export function Replay({ data }: { data: ReplayData }) {
 
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [playing, speed, bars, dwell, paintTo]);
+  }, [playing, speed, bars, paintTo]);
 
   const done = cursor >= bars - 1;
 

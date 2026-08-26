@@ -44,8 +44,7 @@ const SIGNAL = "#ed7088";
 const AMBER = "#97fce4";
 
 /** Mirrors the screen, so a clip frames the trade the same way the replay did. */
-const WINDOW_BARS = 95;
-const RIGHT_PAD = 6;
+const BAR_SPACING = 9;
 
 /** How long a fill label stays up, and how long it takes to arrive and leave. */
 const FLASH_HOLD = 1400;
@@ -175,7 +174,24 @@ export async function exportClip(
     },
     grid: { vertLines: { color: "#ffffff07" }, horzLines: { color: "#ffffff07" } },
     rightPriceScale: { borderColor: LINE, scaleMargins: layout.scaleMargins },
-    timeScale: { borderColor: LINE, timeVisible: true, secondsVisible: false },
+    timeScale: {
+      borderColor: LINE,
+      timeVisible: true,
+      secondsVisible: false,
+      /**
+       * Bar width scaled to the frame, and half a screen of room ahead of the newest bar.
+       *
+       * The export renders at up to 1920 wide against a 992-wide design, so the screen's
+       * nine pixels a bar would draw hairlines in a 1080p clip. Everything else matches the
+       * replay exactly: fixed spacing, room ahead, and the chart scrolling itself.
+       */
+      barSpacing: Math.round(BAR_SPACING * (layout.chart.w / 992)),
+      rightOffset: Math.round(
+        layout.chart.w / Math.round(BAR_SPACING * (layout.chart.w / 992)) / 2,
+      ),
+      shiftVisibleRangeOnNewBar: true,
+      lockVisibleTimeRangeOnResize: true,
+    },
     crosshair: { mode: 0 },
     handleScroll: false,
     handleScale: false,
@@ -264,41 +280,24 @@ export async function exportClip(
     markersUpto[i] = k;
   }
 
-  /**
-   * A window, exactly as the screen uses. This is what made every export look zoomed.
-   *
-   * Pinning the whole time span from frame zero while the series holds only the bars
-   * revealed so far means the drawn bars are crammed into a sliver at the left, and the
-   * price scale, which fits what it HOLDS rather than what is shown, stretches those few
-   * bars over the full height. The result reads as a chart zoomed hard into its own corner,
-   * for the entire clip.
-   *
-   * Same fix as the screen: open on a window of WINDOW_BARS and let the chart scroll itself
-   * as bars are appended.
-   */
-  series.setData(candleData.slice(0, 1));
-  chart.timeScale().setVisibleLogicalRange(
-    bars <= WINDOW_BARS
-      ? { from: -RIGHT_PAD / 2, to: bars - 1 + RIGHT_PAD / 2 }
-      : { from: -RIGHT_PAD, to: WINDOW_BARS - RIGHT_PAD },
-  );
+  series.setData([]);
 
   let painted = -1;
 
+  /** Identical to the screen's `paintTo`, so a clip is the replay rather than a cousin. */
   const stepTo = (index: number, frac: number): void => {
-    if (index < painted) {
-      series.setData(candleData.slice(0, index + 1));
-      if (bars > WINDOW_BARS) {
-        chart.timeScale().setVisibleLogicalRange({
-          from: index - WINDOW_BARS + RIGHT_PAD,
-          to: index + RIGHT_PAD,
-        });
+    if (painted !== index) {
+      if (index > 0 && painted === index - 1) {
+        // The bar that was forming is history now; snap it to its real close.
+        series.update(candleData[index - 1]!);
+      } else {
+        series.setData(candleData.slice(0, index));
+        chart.timeScale().scrollToRealTime();
       }
-    } else {
-      for (let k = painted + 1; k < index; k += 1) series.update(candleData[k]!);
+      markerApi.setMarkers(allMarkers.slice(0, markersUpto[index] ?? 0));
+      painted = index;
     }
 
-    /** The bar being lived through, eased, matching the screen exactly. */
     const bar = candleData[index]!;
     const p = frac * frac * (3 - 2 * frac);
     const close = bar.open + (bar.close - bar.open) * p;
@@ -309,11 +308,6 @@ export async function exportClip(
       high: Math.max(bar.open, close, bar.open + (bar.high - bar.open) * p),
       low: Math.min(bar.open, close, bar.open + (bar.low - bar.open) * p),
     });
-
-    if (index !== painted) {
-      markerApi.setMarkers(allMarkers.slice(0, markersUpto[index] ?? 0));
-    }
-    painted = index;
   };
 
   /* -------------------------------------------------------- frame source */
