@@ -22,9 +22,16 @@ const x = (path: string) => `https://pbs.twimg.com/profile_images/${path}_400x40
 
 export const NOTABLE: Notable[] = [
   {
+    /**
+     * No handle on purpose.
+     *
+     * The reporting names @TheWhiteWhaleHL, and that handle now resolves to an account
+     * with 82 followers, zero posts, a bio reading "dm me", created October 2025 and
+     * carrying X's default egg. It is a squat on a name the real trader stopped using, so
+     * linking it would send people to the wrong person and show a grey egg for a picture.
+     */
     address: "0xfa6af5f4f7440ce389a1e650991eea45c161e13e",
     name: "The White Whale",
-    handle: "TheWhiteWhaleHL",
   },
   {
     address: "0x020ca66c30bec2c4fe3861a94e4db4a498a35872",

@@ -68,8 +68,8 @@ async function Traders() {
           </div>
 
           <div className="grid grid-cols-2 gap-px border-t border-border bg-border">
-            <Trade h={t.best} />
-            <Trade h={t.worst} />
+            <Trade tag="BEST" h={t.best} />
+            <Trade tag="WORST" h={t.worst} />
           </div>
         </Link>
       ))}
@@ -82,29 +82,39 @@ async function Traders() {
  * highest net and the right is the lowest, so a wallet with no losing position shows an
  * empty cell rather than two winners.
  */
-function Trade({ h }: { h: Highlight | null }) {
+function Trade({ tag, h }: { tag: "BEST" | "WORST"; h: Highlight | null }) {
   if (!h) {
-    return <div className="bg-ground px-3.5 py-2.5 text-[11px] text-faint">&ndash;</div>;
+    return (
+      <div className="flex flex-col gap-2 bg-ground px-3.5 py-2.5">
+        <span className="text-[9px] tracking-[0.12em] text-faint">{tag}</span>
+        <span className="text-[11px] text-faint">&ndash;</span>
+      </div>
+    );
   }
 
   const tone = h.net >= 0 ? UP : DOWN;
   return (
-    <div className="flex flex-col gap-1.5 bg-ground px-3.5 py-2.5">
+    <div className="flex flex-col gap-2 bg-ground px-3.5 py-2.5">
       <div className="flex items-center gap-1.5">
-        <CoinIcon coin={h.coin} label={h.label} size={14} />
+        <span className="text-[9px] tracking-[0.12em] text-faint">{tag}</span>
+        {h.liquidated && (
+          <span className="text-[9px] tracking-[0.12em] text-error">LIQ</span>
+        )}
+      </div>
+
+      <div className="flex items-baseline gap-1.5">
+        <span className="text-[17px] leading-none tabular-nums" style={{ color: tone }}>
+          {signedUsd(h.net)}
+        </span>
+        {h.roe !== null && <span className="text-[10px] text-faint">{pct(h.roe)}</span>}
+      </div>
+
+      <div className="flex items-center gap-1.5">
+        <CoinIcon coin={h.coin} label={h.label} size={13} />
         <span className="min-w-0 truncate text-[11px] text-muted">{h.label}</span>
         <span className="shrink-0 text-[9px] tracking-[0.08em]" style={{ color: tone }}>
           {h.side}
         </span>
-        {h.liquidated && (
-          <span className="shrink-0 text-[9px] tracking-[0.08em] text-error">LIQ</span>
-        )}
-      </div>
-      <div className="flex items-baseline gap-1.5">
-        <span className="text-[16px] leading-none tabular-nums" style={{ color: tone }}>
-          {signedUsd(h.net)}
-        </span>
-        {h.roe !== null && <span className="text-[10px] text-faint">{pct(h.roe)}</span>}
       </div>
     </div>
   );
