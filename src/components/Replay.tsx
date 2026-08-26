@@ -190,7 +190,7 @@ export function Replay({ data }: { data: ReplayData }) {
         position: isBuy ? "belowBar" : "aboveBar",
         color: cell.liq ? ACCENT : isBuy ? UP : DOWN,
         shape: isBuy ? "arrowUp" : "arrowDown",
-        text: cell.liq ? "LIQ" : cell.n > 1 ? `${cell.n}` : "",
+        text: cell.liq ? "LIQ" : "",
       };
     });
 
@@ -237,35 +237,6 @@ export function Replay({ data }: { data: ReplayData }) {
   }, [bars, fillsAtBar, wasLiquidated]);
 
   /* -------------------------------------------------------------- charts */
-
-  /** Low and high across the entire replay, entry line included. */
-  const fixedRange = useMemo(() => {
-    let lo = Infinity;
-    let hi = -Infinity;
-    for (const c of data.candles) {
-      if (c.l < lo) lo = c.l;
-      if (c.h > hi) hi = c.h;
-    }
-    if (data.avgEntry > 0) {
-      lo = Math.min(lo, data.avgEntry);
-      hi = Math.max(hi, data.avgEntry);
-    }
-    if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) {
-      return { minValue: 0, maxValue: 1 };
-    }
-    return { minValue: lo, maxValue: hi };
-  }, [data.candles, data.avgEntry]);
-
-  const pnlRange = useMemo(() => {
-    let lo = 0;
-    let hi = 0;
-    for (const p of data.points) {
-      if (p.total < lo) lo = p.total;
-      if (p.total > hi) hi = p.total;
-    }
-    if (hi <= lo) return { minValue: -1, maxValue: 1 };
-    return { minValue: lo, maxValue: hi };
-  }, [data.points]);
 
   useEffect(() => {
     const el = priceRef.current;
@@ -335,20 +306,6 @@ export function Replay({ data }: { data: ReplayData }) {
       priceLineWidth: 1,
       priceLineStyle: 2,
       lastValueVisible: true,
-      /**
-       * A price range fixed to the WHOLE replay, not to what is currently drawn.
-       *
-       * This is the zoom bug. The series only ever holds the bars revealed so far, and by
-       * default the scale fits itself to exactly those, so rewinding to bar five fitted
-       * five bars to the full height of the panel and the chart appeared to zoom in. Worse,
-       * it meant the vertical scale moved continuously during playback, so a candle's
-       * height told you nothing.
-       *
-       * Pinning the range makes the axis mean the same thing at every moment of the
-       * replay, which is the only way the price action reads as movement rather than as
-       * the chart rescaling underneath it.
-       */
-      autoscaleInfoProvider: () => ({ priceRange: fixedRange }),
     });
 
     /**
@@ -372,13 +329,18 @@ export function Replay({ data }: { data: ReplayData }) {
     markersRef.current = createSeriesMarkers(series, []);
     paintedRef.current = -1;
 
-    // Short replays never scroll, so their whole span is framed once, here.
-    if (candleData.length > 0 && candleData.length <= WINDOW_BARS) {
-      chart.timeScale().setVisibleLogicalRange({
-        from: -RIGHT_PAD / 2,
-        to: candleData.length - 1 + RIGHT_PAD / 2,
-      });
-    }
+    /**
+     * The window is sized once, here, and then left alone.
+     *
+     * A short replay is framed whole. A long one opens on a window of WINDOW_BARS and the
+     * chart scrolls itself from there, which keeps a candle the width of a candle instead
+     * of squeezing the entire trade into the panel.
+     */
+    chart.timeScale().setVisibleLogicalRange(
+      candleData.length <= WINDOW_BARS
+        ? { from: -RIGHT_PAD / 2, to: candleData.length - 1 + RIGHT_PAD / 2 }
+        : { from: -RIGHT_PAD, to: WINDOW_BARS - RIGHT_PAD },
+    );
 
     return () => {
       chart.remove();
@@ -417,8 +379,6 @@ export function Replay({ data }: { data: ReplayData }) {
       lineWidth: 2,
       priceLineVisible: false,
       lastValueVisible: false,
-      // Same reason as the candles: a curve that rescales as it draws shows no shape.
-      autoscaleInfoProvider: () => ({ priceRange: pnlRange }),
     });
 
     // Zero is the only meaningful reference on a PnL curve.
@@ -456,8 +416,9 @@ export function Replay({ data }: { data: ReplayData }) {
       if (!series || !chart || bars === 0) return;
       const i = Math.min(Math.max(index, 0), bars - 1);
 
-      if (i < paintedRef.current) {
-        // Rewound. Rebuild, which is the only way to remove bars from a series.
+      const rewound = i < paintedRef.current;
+      if (rewound) {
+        // Rebuild, which is the only way to remove bars from a series.
         series.setData(candleData.slice(0, i + 1));
       } else {
         // Fill in whole bars for anything skipped, so nothing is left half-drawn.
@@ -483,19 +444,22 @@ export function Replay({ data }: { data: ReplayData }) {
       });
 
       /**
-       * The window travels with the action, and does it smoothly.
+       * Following is left to the chart, which already knows how.
        *
-       * Pinning the whole span in view was the wrong answer to the zoom: it fixed the
-       * scale and killed the motion, so the replay stopped following its own chart. What
-       * a live chart does is scroll, and scrolling ONCE PER BAR is a visible jolt every
-       * step, so the range is set every frame and carries the fractional progress. The
-       * chart glides under the forming candle instead of hopping.
+       * Writing a fractional logical range every frame was the shake: the library resolves
+       * a range to whole pixels, so a window nudged by a hundredth of a bar sixty times a
+       * second lands on a slightly different pixel grid each time and the whole plot
+       * shivers. `shiftVisibleRangeOnNewBar` scrolls by exactly one bar when a bar is
+       * appended, which is what every live chart does and what this needed all along.
        *
-       * A replay short enough to fit stays still, because there is nothing to follow.
+       * The range is only forced after a rewind, where bars were removed and the window
+       * has to be put back where the cursor is.
        */
-      if (bars > WINDOW_BARS) {
-        const to = i + frac + RIGHT_PAD;
-        chart.timeScale().setVisibleLogicalRange({ from: to - WINDOW_BARS, to });
+      if (rewound && bars > WINDOW_BARS) {
+        chart.timeScale().setVisibleLogicalRange({
+          from: i - WINDOW_BARS + RIGHT_PAD,
+          to: i + RIGHT_PAD,
+        });
       }
 
       if (i !== paintedRef.current) {
