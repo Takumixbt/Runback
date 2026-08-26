@@ -109,6 +109,32 @@ export function episodes(all: Fill[], subject?: string): Episode[] {
     list.sort((a, b) => a.time - b.time);
 
     /**
+     * Does this coin's position ever reach flat? Decided BEFORE segmenting, because it
+     * decides which rule to segment by, and getting it wrong wrecks ordinary wallets.
+     *
+     * Splitting on idle time unconditionally was doing exactly that. A position held
+     * longer than six hours got cut between its entry and its exit, so the two halves
+     * became separate "positions": one carrying every fill and no PnL, the other carrying
+     * a single closing fill and all of it. MEASURED on Ansem, that produced an 801-fill
+     * HYPE episode worth minus one hundred dollars in fees, and a five-fill episode worth
+     * +$258,547 with no entry attached to it. Anyone holding overnight was mangled.
+     *
+     * Idle-splitting exists for the opposite case: a desk that is never flat and would
+     * otherwise segment into nothing. So it is used only where flat genuinely never
+     * happens, and a wallet that closes its positions is left alone.
+     */
+    let probe = list[0]?.startPosition ?? 0;
+    let everFlat = false;
+    for (const f of list) {
+      probe += f.side === "B" ? f.sz : -f.sz;
+      if (Math.abs(probe) < FLAT) {
+        everFlat = true;
+        break;
+      }
+    }
+    const splitOnIdle = !everFlat;
+
+    /**
      * Seed from the first fill's own report of the position, not from zero.
      *
      * A window that opens mid-position starts with a closing fill, and starting the
@@ -130,7 +156,7 @@ export function episodes(all: Fill[], subject?: string): Episode[] {
        * Done before the position is updated, so the session ends where the activity
        * actually stopped rather than where it resumed.
        */
-      if (cur && lastAt > 0 && f.time - lastAt > MAX_IDLE_MS) {
+      if (splitOnIdle && cur && lastAt > 0 && f.time - lastAt > MAX_IDLE_MS) {
         cur.truncatedEnd = true;
         cur.avgEntry = entryQty > 0 ? entryCost / entryQty : cur.fills[0]!.px;
         cur.net = cur.realized - cur.fees;
@@ -234,12 +260,18 @@ export function episodes(all: Fill[], subject?: string): Episode[] {
 
 /* ------------------------------------------------------------- intervals */
 
+/** Every interval Hyperliquid actually serves, verified against the live endpoint. */
 export const INTERVALS: { name: string; sec: number }[] = [
   { name: "1m", sec: 60 },
+  { name: "3m", sec: 180 },
   { name: "5m", sec: 300 },
   { name: "15m", sec: 900 },
+  { name: "30m", sec: 1800 },
   { name: "1h", sec: 3600 },
+  { name: "2h", sec: 7200 },
   { name: "4h", sec: 14400 },
+  { name: "8h", sec: 28800 },
+  { name: "12h", sec: 43200 },
   { name: "1d", sec: 86400 },
 ];
 
@@ -256,8 +288,16 @@ export const MAX_CANDLES = 5000;
 /** Below this a replay is a straight line with two dots on it, so it is not offered. */
 export const MIN_BARS = 25;
 
-/** Above this the chart is denser than the export can show and the fetch is wasteful. */
-export const MAX_BARS = 1200;
+/**
+ * Above this the replay is too long to sit through.
+ *
+ * The bar count IS the running time: at 600ms a bar, 1,200 bars is twelve minutes. So the
+ * interval has to be chosen against how long the video will be, not against how fine the
+ * data can get. 260 bars is about two and a half minutes at 1x and half that at 2x, and it
+ * is what pushes a two-day hold onto 15m bars and a ten-day one onto hourly, which is how
+ * anybody would draw those trades by hand.
+ */
+export const MAX_BARS = 260;
 
 /** Context either side of the trade, so the entry marker is not sitting on bar zero. */
 export const PAD = 0.15;
