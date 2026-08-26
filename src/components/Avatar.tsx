@@ -53,6 +53,15 @@ export function Avatar({
   }
 
   const [a, b] = hues(address);
+  /**
+   * Initials only when there are initials.
+   *
+   * An address has none. Slicing two characters off a hex string produced "02" sitting in
+   * a circle at the top of a wallet page, which reads as a number that means something and
+   * does not. With no name the gradient carries the identity on its own, and it is still
+   * unique to the address.
+   */
+  const initials = name.replace(/[^A-Za-z]/g, "").slice(0, 2).toUpperCase();
   return (
     <span
       aria-hidden
@@ -64,7 +73,7 @@ export function Avatar({
         background: `linear-gradient(135deg, hsl(${a} 62% 58%), hsl(${b} 48% 34%))`,
       }}
     >
-      {name.replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase()}
+      {initials}
     </span>
   );
 }

@@ -338,8 +338,13 @@ function Summary({ eps }: { eps: Episode[] }) {
   }, [eps]);
 
   return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[8px] border border-border bg-border sm:grid-cols-3 md:grid-cols-6">
-      <Metric label="POSITIONS" value={String(s.count)} />
+    /*
+      Five figures, not six. "POSITIONS 70" sat here directly above a panel headed
+      POSITIONS reading "70 · 70 replayable": the same word twice and the same number
+      three times inside one screen. The count belongs to the list, so it lives on the
+      list.
+    */
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[8px] border border-border bg-border sm:grid-cols-3 lg:grid-cols-5">
       <Metric label="NET" value={signedUsd(s.net)} tone={s.net} />
       <Metric
         label="WIN RATE"
@@ -442,9 +447,16 @@ function EpisodeTable({
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-micro tracking-[0.08em] text-faint">POSITIONS</span>
           <span className="text-mini text-faint">
-            {shown.length === eps.length
-              ? `${eps.length} · ${drawable} replayable`
-              : `${shown.length} of ${eps.length}`}
+            {/*
+              One number unless a second one is actually news. Saying "70 · 70 replayable"
+              spends a clause telling you nothing; the count only earns its place when some
+              of the catalogue cannot be drawn.
+            */}
+            {shown.length !== eps.length
+              ? `${shown.length} of ${eps.length}`
+              : drawable === eps.length
+                ? `${eps.length} positions`
+                : `${eps.length} · ${eps.length - drawable} undrawable`}
           </span>
           {streaming && (
             <span className="flex items-center gap-1.5 text-mini text-accent-soft">
@@ -454,32 +466,45 @@ function EpisodeTable({
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          <button
-            onClick={() => setOnlyDrawable((v) => !v)}
-            aria-pressed={onlyDrawable}
-            className={`h-[28px] rounded-[6px] border px-2.5 text-mini transition-colors duration-[120ms] ${
-              onlyDrawable
-                ? "border-accent-soft text-accent"
-                : "border-border text-faint hover:border-muted hover:text-muted"
-            }`}
-          >
-            Replayable
-          </button>
+        <div className="flex flex-wrap items-center gap-3 sm:justify-end">
+          {/*
+            Offered only when some of the catalogue cannot be drawn. A filter that removes
+            nothing is a control you have to read, understand and then decline, which is a
+            cost with no upside. A bare uppercase REPLAYABLE also read as a column heading
+            rather than as something you could press.
+          */}
+          {drawable < eps.length && (
+            <label className="flex cursor-pointer select-none items-center gap-1.5 text-mini text-muted transition-colors duration-[120ms] hover:text-tx">
+              <input
+                type="checkbox"
+                checked={onlyDrawable}
+                onChange={(e) => setOnlyDrawable(e.target.checked)}
+                className="h-3 w-3 accent-[#50d2c1]"
+              />
+              Replayable only
+            </label>
+          )}
 
-          <div className="flex h-[28px] w-full min-w-0 items-center gap-0.5 rounded-[6px] border border-border p-[3px] sm:w-auto">
-            {SORTS.map((o) => (
-              <button
-                key={o.key}
-                onClick={() => setSort(o.key)}
-                aria-pressed={sort === o.key}
-                className={`h-full flex-1 whitespace-nowrap rounded-[4px] px-2.5 text-mini transition-colors duration-[120ms] sm:flex-none ${
-                  sort === o.key ? "bg-inset text-tx" : "text-faint hover:text-muted"
-                }`}
-              >
-                {o.label}
-              </button>
-            ))}
+          <div className="flex items-center gap-1.5">
+            <span className="text-micro tracking-[0.08em] text-faint">SORT</span>
+            <div
+              role="group"
+              aria-label="Sort positions"
+              className="flex h-[28px] w-full min-w-0 items-center gap-0.5 rounded-[6px] border border-border p-[3px] sm:w-auto"
+            >
+              {SORTS.map((o) => (
+                <button
+                  key={o.key}
+                  onClick={() => setSort(o.key)}
+                  aria-pressed={sort === o.key}
+                  className={`h-full flex-1 whitespace-nowrap rounded-[4px] px-2.5 text-mini transition-colors duration-[120ms] sm:flex-none ${
+                    sort === o.key ? "bg-inset text-tx" : "text-faint hover:text-muted"
+                  }`}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
