@@ -86,8 +86,7 @@ export function Replay({ data }: { data: ReplayData }) {
 
   const [cursor, setCursor] = useState(0);
   const [playing, setPlaying] = useState(true);
-  /** Two, like Trickshot: one is deliberate, and deliberate is slow to arrive at. */
-  const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(2);
+    const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
   const [muted, setMuted] = useState(true);
 
   const bars = data.candles.length;
@@ -181,7 +180,16 @@ export function Replay({ data }: { data: ReplayData }) {
         time: (data.candles[b]!.t / 1000) as UTCTimestamp,
         position: isBuy ? "belowBar" : "aboveBar",
         color: cell.liq ? ACCENT : isBuy ? UP : DOWN,
-        shape: isBuy ? "arrowUp" : "arrowDown",
+        /**
+         * Circles, not arrows.
+         *
+         * An arrow is drawn large enough to have a direction, so at nine pixels a bar it
+         * is wider than the candle it belongs to and a run of them merges into a solid
+         * band along the axis. A dot sits under its own bar and the side is already said
+         * by the colour.
+         */
+        shape: "circle",
+        size: cell.liq ? 2 : 1,
         text: cell.liq ? "LIQ" : "",
       };
     });
@@ -695,21 +703,55 @@ export function Replay({ data }: { data: ReplayData }) {
               </div>
 
               {done && (
-                <div className="hl-fade pointer-events-none absolute inset-0 flex items-center justify-center bg-ground/70 backdrop-blur-[1px]">
-                  <div className="flex flex-col items-center gap-1.5">
-                    <span className="text-[10px] tracking-[0.22em] text-faint">
+                /**
+                 * The end card, which is what a clip is actually for.
+                 *
+                 * It used to be the net figure and a percentage under it. That is a
+                 * receipt, not an ending: the whole point of watching the drawdown is
+                 * knowing what it cost to sit through, and none of that survived to the
+                 * last frame. Return, held, best and worst all land here now.
+                 */
+                <div className="hl-fade pointer-events-none absolute inset-0 flex items-center justify-center bg-ground/80 backdrop-blur-[2px]">
+                  <div className="flex flex-col items-center gap-3">
+                    <span className="text-[10px] tracking-[0.24em] text-faint">
                       {data.closedByLiquidation ? "LIQUIDATED" : "CLOSED"}
                     </span>
-                    <span
-                      className="text-[44px] leading-none"
-                      style={{ color: data.net >= 0 ? UP : DOWN }}
-                    >
-                      {signedUsd(data.net)}
-                    </span>
-                    <span className="text-[12px] text-muted">
-                      {data.roe === null ? "" : `${pct(data.roe)} · `}fees{" "}
-                      {signedUsd(-data.fees)}
-                    </span>
+
+                    <div className="flex items-baseline gap-3">
+                      <span
+                        className="text-[46px] leading-none tabular-nums"
+                        style={{ color: data.net >= 0 ? UP : DOWN }}
+                      >
+                        {signedUsd(data.net)}
+                      </span>
+                      {data.roe !== null && (
+                        <span
+                          className="text-[22px] leading-none tabular-nums"
+                          style={{ color: data.roe >= 0 ? UP : DOWN }}
+                        >
+                          {pct(data.roe)}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center gap-5 text-[11px] text-muted">
+                      <span>
+                        <span className="text-faint">held </span>
+                        {held}
+                      </span>
+                      <span>
+                        <span className="text-faint">peak </span>
+                        <span style={{ color: UP }}>{signedUsd(data.peak)}</span>
+                      </span>
+                      <span>
+                        <span className="text-faint">drawdown </span>
+                        <span style={{ color: DOWN }}>{signedUsd(data.trough)}</span>
+                      </span>
+                      <span>
+                        <span className="text-faint">fees </span>
+                        {signedUsd(-data.fees)}
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}
