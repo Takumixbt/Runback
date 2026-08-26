@@ -63,8 +63,11 @@ const LIQ_BOOST = 9;
  *
  * Wide enough to carry the shape of a move, tight enough that a candle is a candle rather
  * than a hair. Anything shorter than this is shown whole and does not scroll.
+ *
+ * The count is the only thing deciding how big a candle looks, so it is deliberately low.
+ * Fitting an entire trade into the panel is what made them read as slivers.
  */
-const WINDOW_BARS = 130;
+const WINDOW_BARS = 95;
 const RIGHT_PAD = 6;
 
 const SPEEDS = [0.5, 1, 2, 4] as const;
