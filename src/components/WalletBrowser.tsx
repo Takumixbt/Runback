@@ -205,11 +205,22 @@ export function WalletBrowser({
     <div className="flex flex-col gap-3">
       {showForm && (
         <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row">
-          <div className="flex h-[42px] flex-1 items-center rounded-[8px] border border-border px-4 transition-colors duration-[120ms] focus-within:border-accent-soft hover:border-muted">
+          <div className="flex h-[42px] flex-1 items-center gap-2.5 rounded-[8px] border border-border px-3.5 transition-colors duration-[120ms] focus-within:border-accent-soft hover:border-muted">
+            <svg
+              viewBox="0 0 16 16"
+              className="h-[13px] w-[13px] shrink-0 text-faint"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              aria-hidden
+            >
+              <circle cx="7" cy="7" r="4.5" />
+              <path d="M10.5 10.5 L14 14" strokeLinecap="round" />
+            </svg>
             <input
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              placeholder="0x…"
+              placeholder="Search any Hyperliquid address"
               spellCheck={false}
               autoComplete="off"
               aria-label="Hyperliquid address"
@@ -221,7 +232,7 @@ export function WalletBrowser({
             disabled={busy}
             className="h-[42px] rounded-[8px] bg-accent-soft px-7 text-[12px] text-accent-text transition-[filter,transform] duration-[120ms] hover:brightness-105 active:scale-[0.99] disabled:bg-accent-dim disabled:text-muted"
           >
-            {busy ? "Loading" : "Run it back"}
+            {busy ? "Loading" : "Search"}
           </button>
         </form>
       )}

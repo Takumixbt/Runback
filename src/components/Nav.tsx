@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { isAddress } from "@/lib/hl";
+import { Logo } from "./Logo";
 
 /**
  * The top bar, present on every page.
@@ -38,9 +39,11 @@ export function Nav() {
 
   return (
     <nav className="flex h-[46px] shrink-0 items-center justify-between gap-4 border-b border-border px-4">
-      <Link href="/" className="flex items-baseline gap-2">
-        <span className="text-[15px] leading-none text-title">Runback</span>
-        <span className="hidden text-[10px] text-faint sm:inline">for Hyperliquid</span>
+      <Link href="/" className="flex items-center gap-2">
+        <Logo size={20} />
+        <span className="text-[15px] leading-none tracking-[-0.01em] text-title">
+          Runback
+        </span>
       </Link>
 
       {!onHome && (
