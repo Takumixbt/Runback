@@ -163,7 +163,13 @@ export function WalletBrowser({ initial }: { initial?: string }) {
         >
           <span aria-hidden>←</span> All positions
         </button>
-        <Replay data={replay} />
+        {/*
+          Keyed, so switching positions remounts rather than reusing.
+          Every ref in the replay describes one chart, and carrying them into a different
+          trade is what produced "Cannot update oldest data": a cursor left at bar 400
+          talking to a series that had just been rebuilt from scratch.
+        */}
+        <Replay key={`${replay.coin}-${replay.candles[0]?.t ?? 0}`} data={replay} />
       </div>
     );
   }

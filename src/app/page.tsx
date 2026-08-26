@@ -28,6 +28,8 @@ export default function Home() {
 
       <WalletBrowser />
 
+      <Steps />
+
       <Suspense fallback={<TradersSkeleton />}>
         <Traders />
       </Suspense>
@@ -74,6 +76,36 @@ async function Traders() {
         </Link>
       ))}
     </div>
+  );
+}
+
+/**
+ * How the site works, in three moves.
+ *
+ * Not the paragraph that was here before. A visitor landing on an input box and a grid of
+ * strangers has no way to know what happens when they press the button, and the answer is
+ * short enough to fit on one line, so it goes on one line.
+ */
+function Steps() {
+  const steps = [
+    "Paste any Hyperliquid wallet",
+    "Pick a position from its list",
+    "Watch it play out, export the clip",
+  ];
+  return (
+    <ol className="flex flex-col gap-px overflow-hidden rounded-[8px] border border-border bg-border sm:flex-row">
+      {steps.map((text, i) => (
+        <li
+          key={text}
+          className="flex flex-1 items-center gap-2.5 bg-ground px-3.5 py-2.5 text-[11px] text-muted"
+        >
+          <span className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full border border-border text-[10px] text-faint">
+            {i + 1}
+          </span>
+          {text}
+        </li>
+      ))}
+    </ol>
   );
 }
 

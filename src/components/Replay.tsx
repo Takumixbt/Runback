@@ -65,6 +65,16 @@ export function Replay({ data }: { data: ReplayData }) {
   const pnlSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const paintedRef = useRef(-1);
+  /**
+   * The timestamp actually written into the series, which `paintedRef` only claims.
+   *
+   * `series.update()` throws "Cannot update oldest data" if handed a bar at or before the
+   * last one the series holds, and an index is not enough to rule that out: the two refs
+   * belong to a chart that any dependency change can replace underneath them, so the index
+   * can say "one step forward" while the series it is talking to was rebuilt and is
+   * somewhere else entirely. Comparing the time is the only check that cannot go stale.
+   */
+  const lastTimeRef = useRef<number>(-1);
   /** Highest bar the soundtrack has already reacted to, so scrubbing back stays silent. */
   const soundedRef = useRef(-1);
   const milestoneRef = useRef(0);
@@ -271,6 +281,7 @@ export function Replay({ data }: { data: ReplayData }) {
     seriesRef.current = series;
     markersRef.current = createSeriesMarkers(series, []);
     paintedRef.current = -1;
+    lastTimeRef.current = -1;
 
     return () => {
       chart.remove();
@@ -344,9 +355,12 @@ export function Replay({ data }: { data: ReplayData }) {
      * every bar. Appending leaves it alone, which is what makes playback look like a chart
      * advancing rather than one being redrawn.
      */
-    if (upto === paintedRef.current + 1) {
-      series.update(candleData[upto]!);
-    } else if (upto !== paintedRef.current) {
+    const bar = candleData[upto]!;
+    const t = bar.time as number;
+
+    if (upto === paintedRef.current + 1 && t > lastTimeRef.current) {
+      series.update(bar);
+    } else if (upto !== paintedRef.current || t <= lastTimeRef.current) {
       series.setData(candleData.slice(0, upto + 1));
       // The whole span stays in view, so the trade holds still and fills in.
       chart.timeScale().setVisibleRange({
@@ -355,6 +369,7 @@ export function Replay({ data }: { data: ReplayData }) {
       });
     }
     paintedRef.current = upto;
+    lastTimeRef.current = t;
 
     markersRef.current?.setMarkers(allMarkers.slice(0, markersUpto[upto] ?? 0));
     pnlSeriesRef.current?.setData(pnlData.slice(0, upto + 1));
@@ -422,6 +437,7 @@ export function Replay({ data }: { data: ReplayData }) {
   const restart = useCallback(() => {
     setCursor(0);
     paintedRef.current = -1;
+    lastTimeRef.current = -1;
     soundedRef.current = -1;
     milestoneRef.current = 0;
     setPlaying(true);
@@ -431,6 +447,14 @@ export function Replay({ data }: { data: ReplayData }) {
     if (done) restart();
     else setPlaying((p) => !p);
   }, [done, restart]);
+
+  const step = useCallback(
+    (bars5: number) => {
+      setPlaying(false);
+      setCursor((c) => Math.min(Math.max(0, c + bars5 * 5), bars - 1));
+    },
+    [bars],
+  );
 
   const toggleMute = useCallback(() => {
     setMuted((m) => {
@@ -460,11 +484,13 @@ export function Replay({ data }: { data: ReplayData }) {
         setCursor((c) => Math.min(bars - 1, c + (e.shiftKey ? 25 : 5)));
       } else if (e.key.toLowerCase() === "m") {
         toggleMute();
+      } else if (e.key.toLowerCase() === "r") {
+        restart();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggle, toggleMute, bars]);
+  }, [toggle, toggleMute, restart, bars]);
 
   /* -------------------------------------------------------------- render */
 
@@ -615,13 +641,27 @@ export function Replay({ data }: { data: ReplayData }) {
             </div>
 
             {/* ------------------------------------------------- transport */}
-            <div className="flex flex-wrap items-center gap-2.5 border-t border-border px-3 py-2.5">
-              <button
-                onClick={toggle}
-                className="h-[28px] rounded-[8px] bg-accent-soft px-4 text-[11px] text-accent-text transition-[filter,transform] duration-[120ms] hover:brightness-105 active:scale-[0.99]"
-              >
-                {done ? "Run it back" : playing ? "Pause" : "Play"}
-              </button>
+            <div className="flex flex-wrap items-center gap-2 border-t border-border px-3 py-2.5">
+              {/*
+                A transport, in the order a transport goes.
+                The old row had one button that changed its own meaning depending on where
+                the playhead was, so there was no way to go back to the start without
+                dragging the scrubber to zero and guessing. Restart, step, play, step.
+              */}
+              <div className="flex items-center gap-0.5 rounded-[8px] border border-border p-0.5">
+                <Ctl onClick={restart} label="Restart" hint="R">
+                  <SkipIcon />
+                </Ctl>
+                <Ctl onClick={() => step(-1)} label="Back 5 bars" hint="&larr;">
+                  <StepIcon />
+                </Ctl>
+                <Ctl onClick={toggle} label={playing ? "Pause" : "Play"} hint="Space" primary>
+                  {playing && !done ? <PauseIcon /> : <PlayIcon />}
+                </Ctl>
+                <Ctl onClick={() => step(1)} label="Forward 5 bars" hint="&rarr;">
+                  <StepIcon forward />
+                </Ctl>
+              </div>
 
               {/*
                 A segmented control, sized as one object.
@@ -632,29 +672,29 @@ export function Replay({ data }: { data: ReplayData }) {
               <div
                 role="group"
                 aria-label="Playback speed"
-                className="grid h-[28px] grid-cols-4 items-stretch overflow-hidden rounded-[8px] border border-border"
+                className="grid h-[30px] grid-cols-4 items-stretch overflow-hidden rounded-[8px] border border-border"
               >
-                {SPEEDS.map((s) => (
+                {SPEEDS.map((sp) => (
                   <button
-                    key={s}
-                    onClick={() => setSpeed(s)}
-                    aria-pressed={speed === s}
-                    className={`w-[38px] text-[11px] leading-none transition-colors duration-[120ms] ${
-                      speed === s
+                    key={sp}
+                    onClick={() => setSpeed(sp)}
+                    aria-pressed={speed === sp}
+                    className={`w-[36px] text-[11px] leading-none transition-colors duration-[120ms] ${
+                      speed === sp
                         ? "bg-inset text-tx"
                         : "text-faint hover:bg-inset/40 hover:text-muted"
                     }`}
                   >
-                    {s}&times;
+                    {sp}&times;
                   </button>
                 ))}
               </div>
 
               <button
                 onClick={toggleMute}
-                title="Mute (M)"
+                title={muted ? "Unmute (M)" : "Mute (M)"}
                 aria-label={muted ? "Unmute" : "Mute"}
-                className={`grid h-[28px] w-[28px] place-items-center rounded-[8px] border border-border transition-colors duration-[120ms] hover:border-muted ${
+                className={`grid h-[30px] w-[30px] place-items-center rounded-[8px] border border-border transition-colors duration-[120ms] hover:border-muted ${
                   muted ? "text-faint" : "text-accent"
                 }`}
               >
@@ -670,12 +710,13 @@ export function Replay({ data }: { data: ReplayData }) {
                   setPlaying(false);
                   setCursor(Number(e.target.value));
                 }}
-                className="h-1 min-w-[120px] flex-1 accent-[#97fce4]"
+                className="h-1 min-w-[110px] flex-1 accent-[#97fce4]"
                 aria-label="Scrub"
               />
 
-              <span className="w-[40px] shrink-0 text-right text-[11px] text-faint">
+              <span className="shrink-0 text-[11px] tabular-nums text-faint">
                 {clock(data.candles[Math.min(cursor, bars - 1)]!.t)}
+                <span className="text-[10px]"> / {clock(data.candles[bars - 1]!.t)}</span>
               </span>
             </div>
           </Panel>
@@ -769,6 +810,83 @@ function Row({ label, value, tone }: { label: string; value: string; tone?: numb
         {value}
       </dd>
     </div>
+  );
+}
+
+/**
+ * One transport button.
+ *
+ * The tooltip carries both the action and its key, so the keyboard shortcuts are
+ * discoverable from the control itself rather than from a line of text under the chart
+ * that everybody scrolls past.
+ */
+function Ctl({
+  onClick,
+  label,
+  hint,
+  primary,
+  children,
+}: {
+  onClick: () => void;
+  label: string;
+  hint: string;
+  primary?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={`${label} (${hint})`}
+      aria-label={label}
+      className={`grid h-[26px] place-items-center rounded-[6px] transition-colors duration-[120ms] ${
+        primary
+          ? "w-[38px] bg-accent-soft text-accent-text hover:brightness-105"
+          : "w-[30px] text-muted hover:bg-inset hover:text-tx"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+const ICON = {
+  className: "h-[12px] w-[12px]",
+  fill: "currentColor",
+  "aria-hidden": true,
+} as const;
+
+function PlayIcon() {
+  return (
+    <svg viewBox="0 0 12 12" {...ICON}>
+      <path d="M3.4 1.9a.6.6 0 0 1 .93-.5l5 4.1a.6.6 0 0 1 0 1l-5 4.1a.6.6 0 0 1-.93-.5z" />
+    </svg>
+  );
+}
+
+function PauseIcon() {
+  return (
+    <svg viewBox="0 0 12 12" {...ICON}>
+      <rect x="2.6" y="1.8" width="2.6" height="8.4" rx="1.1" />
+      <rect x="6.8" y="1.8" width="2.6" height="8.4" rx="1.1" />
+    </svg>
+  );
+}
+
+function SkipIcon() {
+  return (
+    <svg viewBox="0 0 12 12" {...ICON}>
+      <rect x="1.7" y="1.8" width="1.9" height="8.4" rx="0.95" />
+      <path d="M10.4 2.2a.6.6 0 0 1 .9.5v6.6a.6.6 0 0 1-.9.5L5.2 6.5a.6.6 0 0 1 0-1z" />
+    </svg>
+  );
+}
+
+function StepIcon({ forward }: { forward?: boolean }) {
+  return (
+    <svg viewBox="0 0 12 12" {...ICON} style={forward ? undefined : { transform: "scaleX(-1)" }}>
+      <path d="M1.9 2.2a.6.6 0 0 0-.9.5v6.6a.6.6 0 0 0 .9.5l4.4-3.3a.6.6 0 0 0 0-1z" />
+      <path d="M6.6 2.2a.6.6 0 0 0-.9.5v6.6a.6.6 0 0 0 .9.5l4.4-3.3a.6.6 0 0 0 0-1z" />
+    </svg>
   );
 }
 
