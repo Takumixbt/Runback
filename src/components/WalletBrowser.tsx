@@ -30,25 +30,18 @@ const FLIPPED = "#97fce4";
 const FAINT = "#9aa3a48c";
 
 /**
- * How far back to read, without asking.
+ * The whole record, always. There is no window and no control asking for one.
  *
- * A timeframe control was the first thing on the page and it was a question nobody can
- * answer before seeing any results. 30 days covers everything the candle endpoint can
- * still draw at a useful interval, and a wallet with nothing in it is silently retried
- * over a year rather than left looking empty.
- */
-const SPAN_DAYS = 30;
-const WIDER_DAYS = 400;
-
-/**
- * Arriving on a link to one specific position reads everything.
+ * Thirty days was a compromise nobody benefited from. The front page advertises a wallet's
+ * best position on record and then the page it opened showed the last month, so tapping
+ * James Wynn promised $25M on kPEPE and delivered a handful of recent SP500 scalps. A
+ * catalogue that disagrees with the card that sent you to it is worse than a slow one.
  *
- * The trader cards link at a position picked from a wallet's WHOLE record, and this list
- * was loading thirty days. James Wynn's best is May 2025, so `eps.find` came back
- * undefined and "Watch" did nothing at all: no error, no chart, no clue. Every link on the
- * front page to a trade older than a month was silently dead.
+ * This is affordable because it is the visitor's own browser and their own rate limit, and
+ * the count ticks up while it walks so the wait is legible rather than blank.
  */
-const LINKED_DAYS = 4000;
+const SINCE = 0;
+const MAX_PAGES = 14;
 
 type Phase =
   | { k: "idle" }
@@ -80,7 +73,7 @@ export function WalletBrowser({
       .catch(() => setMarkets(null));
   }, []);
 
-  const load = useCallback(async (who: string, deep = false) => {
+  const load = useCallback(async (who: string) => {
     abort.current?.abort();
     const ctl = new AbortController();
     abort.current = ctl;
@@ -90,17 +83,13 @@ export function WalletBrowser({
     setEps([]);
     setPhase({ k: "loading", note: "reading fills" });
 
-    const now = Date.now();
-    const read = (days: number) =>
-      fetchFills(who, now - days * 86_400_000, now, {
-        signal: ctl.signal,
-        maxPages: deep ? 12 : 8,
-        onPage: (total) => setPhase({ k: "loading", note: `${total} fills` }),
-      });
-
     try {
-      let raw = await read(deep ? LINKED_DAYS : SPAN_DAYS);
-      if (raw.length === 0 && !ctl.signal.aborted && !deep) raw = await read(WIDER_DAYS);
+      const raw = await fetchFills(who, SINCE, Date.now(), {
+        signal: ctl.signal,
+        maxPages: MAX_PAGES,
+        onPage: (total) =>
+          setPhase({ k: "loading", note: `${total.toLocaleString()} fills` }),
+      });
       if (ctl.signal.aborted) return;
       setEps(segment(raw, who));
       setPhase({ k: "ready" });
@@ -191,7 +180,7 @@ export function WalletBrowser({
   }, [position, eps, open]);
 
   useEffect(() => {
-    if (initial && isAddress(initial)) void load(initial.toLowerCase(), Boolean(position));
+    if (initial && isAddress(initial)) void load(initial.toLowerCase());
     // Mount only, and only when the route carried an address.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -345,6 +334,18 @@ function Summary({ eps }: { eps: Episode[] }) {
   );
 }
 
+type Sort = "stake" | "best" | "worst" | "recent";
+
+const SORTS: { key: Sort; label: string }[] = [
+  { key: "stake", label: "Biggest" },
+  { key: "best", label: "Best" },
+  { key: "worst", label: "Worst" },
+  { key: "recent", label: "Recent" },
+];
+
+/** Rows drawn at once. A wallet with five hundred positions is not a page anybody reads. */
+const PAGE_ROWS = 50;
+
 function EpisodeTable({
   eps,
   markets,
@@ -356,114 +357,263 @@ function EpisodeTable({
   onOpen: (ep: Episode) => void;
   opening: string | null;
 }) {
-  const windows = useMemo(() => eps.map((e) => pickWindow(e.start, e.end)), [eps]);
-  const drawable = windows.filter(Boolean).length;
+  const [sort, setSort] = useState<Sort>("stake");
+  const [market, setMarket] = useState<string | null>(null);
+  const [onlyDrawable, setOnlyDrawable] = useState(false);
+  const [visible, setVisible] = useState(PAGE_ROWS);
+
+  /** Windows are computed once for the whole catalogue, not per render of a row. */
+  const windows = useMemo(() => {
+    const m = new Map<string, ReturnType<typeof pickWindow>>();
+    for (const e of eps) m.set(e.id, pickWindow(e.start, e.end));
+    return m;
+  }, [eps]);
+
+  /**
+   * The markets this wallet actually traded, busiest first.
+   *
+   * Five hundred positions across thirty markets is not browsable as one list however it
+   * is sorted, and the question people arrive with is nearly always about one market.
+   * These are the only filter worth offering because they are the only axis the wallet
+   * itself has.
+   */
+  const byMarket = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const e of eps) counts.set(e.coin, (counts.get(e.coin) ?? 0) + 1);
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+  }, [eps]);
+
+  const shown = useMemo(() => {
+    let list = eps;
+    if (market) list = list.filter((e) => e.coin === market);
+    if (onlyDrawable) list = list.filter((e) => windows.get(e.id));
+
+    const ranked = [...list];
+    if (sort === "best") ranked.sort((a, b) => b.net - a.net);
+    else if (sort === "worst") ranked.sort((a, b) => a.net - b.net);
+    else if (sort === "recent") ranked.sort((a, b) => b.end - a.end);
+    else {
+      // Open first, then by what was at stake, which is the order the list ships in.
+      ranked.sort((a, b) => {
+        if (a.open !== b.open) return a.open ? -1 : 1;
+        return Math.abs(b.net) - Math.abs(a.net);
+      });
+    }
+    return ranked;
+  }, [eps, market, onlyDrawable, sort, windows]);
+
+  const drawable = useMemo(
+    () => eps.filter((e) => windows.get(e.id)).length,
+    [eps, windows],
+  );
+
+  // Any change to what is being looked at starts the list from the top again.
+  useEffect(() => setVisible(PAGE_ROWS), [sort, market, onlyDrawable]);
 
   return (
     <Panel
       label="POSITIONS"
-      aside={<span className="text-faint">{drawable} of {eps.length} replayable</span>}
+      aside={
+        <span className="text-faint">
+          {shown.length === eps.length
+            ? `${eps.length} · ${drawable} replayable`
+            : `${shown.length} of ${eps.length}`}
+        </span>
+      }
       flush
     >
-      <div className="scrollers overflow-x-auto">
-        <table className="w-full min-w-[720px] border-collapse text-[12px]">
-          <thead>
-            <tr className="border-b border-border text-[10px] tracking-[0.08em] text-faint">
-              <th className="px-3 py-2 text-left font-normal">MARKET</th>
-              <th className="px-3 py-2 text-left font-normal">OPENED</th>
-              <th className="px-3 py-2 text-right font-normal">HELD</th>
-              <th className="px-3 py-2 text-right font-normal">SIZE</th>
-              <th className="px-3 py-2 text-right font-normal">NET</th>
-              <th className="px-3 py-2 text-right font-normal">RETURN</th>
-              <th className="px-3 py-2 text-right font-normal"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {eps.map((ep, i) => {
-              const w = windows[i];
-              const kind = kindOf(ep.coin, markets);
-              const label = labelFor(ep.coin, markets);
-              const roe = returnOf(ep.net, ep.peakNotional);
-              const tone = ep.side === "LONG" ? UP : ep.side === "SHORT" ? DOWN : FLIPPED;
-              const dead = !w;
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
+        <div className="scrollers flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          <Chip active={market === null} onClick={() => setMarket(null)}>
+            All
+          </Chip>
+          {byMarket.map(([coin, n]) => (
+            <Chip
+              key={coin}
+              active={market === coin}
+              onClick={() => setMarket(market === coin ? null : coin)}
+            >
+              <CoinIcon coin={coin} label={labelFor(coin, markets)} size={13} />
+              {labelFor(coin, markets)}
+              <span className="text-faint">{n}</span>
+            </Chip>
+          ))}
+        </div>
 
-              return (
-                <tr
-                  key={ep.id}
-                  onClick={() => w && onOpen(ep)}
-                  className={`group border-b border-divider transition-colors duration-[120ms] last:border-b-0 ${
-                    dead ? "opacity-45" : "cursor-pointer hover:bg-inset/40"
-                  }`}
-                >
-                  <td className="px-3 py-2.5">
-                    <div className="flex items-center gap-2">
-                      <CoinIcon coin={ep.coin} label={label} size={16} />
-                      <span className="text-tx">{label}</span>
-                      <span className="text-[10px] tracking-[0.08em]" style={{ color: tone }}>
-                        {ep.side}
-                      </span>
-                      {kind !== "perp" && (
-                        <span className="text-[9px] tracking-[0.08em] text-faint">
-                          {kind === "spot" ? "SPOT" : "HIP-3"}
-                        </span>
-                      )}
-                      {ep.closedByLiquidation && (
-                        <span className="rounded-[4px] bg-error/15 px-1.5 py-px text-[9px] tracking-[0.08em] text-error">
-                          LIQ
-                        </span>
-                      )}
-                      {ep.open && (
-                        <span className="rounded-[4px] border border-border px-1.5 py-px text-[9px] tracking-[0.08em] text-faint">
-                          OPEN
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-3 py-2.5 text-muted">{when(ep.start)}</td>
-                  <td className="px-3 py-2.5 text-right text-muted">
-                    {ep.open ? "–" : duration(ep.end - ep.start)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right text-muted">
-                    {usdCompact(ep.peakNotional)}
-                  </td>
-                  <td
-                    className="px-3 py-2.5 text-right"
-                    style={{ color: ep.open ? FAINT : ep.net >= 0 ? UP : DOWN }}
-                  >
-                    {ep.open ? "–" : signedUsd(ep.net)}
-                  </td>
-                  <td
-                    className="px-3 py-2.5 text-right"
-                    style={{ color: ep.open || roe === null ? FAINT : roe >= 0 ? UP : DOWN }}
-                  >
-                    {ep.open || roe === null ? "–" : pct(roe)}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-2.5 text-right">
-                    {w ? (
-                      <span
-                        className={`text-[11px] transition-colors duration-[120ms] ${
-                          opening === ep.id
-                            ? "text-accent"
-                            : "text-faint group-hover:text-accent-soft"
-                        }`}
-                      >
-                        {opening === ep.id ? "Drawing…" : "Watch →"}
-                      </span>
-                    ) : (
-                      <span
-                        className="cursor-help text-[11px] text-faint"
-                        title={whyNoWindow(ep.start, ep.end)}
-                      >
-                        No bars left
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={() => setOnlyDrawable((v) => !v)}
+            aria-pressed={onlyDrawable}
+            className={`rounded-[6px] border px-2 py-1 text-[10px] tracking-[0.06em] transition-colors duration-[120ms] ${
+              onlyDrawable
+                ? "border-accent-soft text-accent"
+                : "border-border text-faint hover:border-muted hover:text-muted"
+            }`}
+          >
+            REPLAYABLE
+          </button>
+
+          <div className="flex items-center gap-0.5 rounded-[6px] border border-border p-0.5">
+            {SORTS.map((o) => (
+              <button
+                key={o.key}
+                onClick={() => setSort(o.key)}
+                aria-pressed={sort === o.key}
+                className={`rounded-[4px] px-2 py-0.5 text-[10px] transition-colors duration-[120ms] ${
+                  sort === o.key ? "bg-inset text-tx" : "text-faint hover:text-muted"
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
+
+      {shown.length === 0 ? (
+        <p className="px-3 py-8 text-center text-[12px] text-faint">
+          Nothing matches that filter.
+        </p>
+      ) : (
+        <div className="scrollers overflow-x-auto">
+          <table className="w-full min-w-[720px] border-collapse text-[12px]">
+            <thead>
+              <tr className="border-b border-border text-[10px] tracking-[0.08em] text-faint">
+                <th className="px-3 py-2 text-left font-normal">MARKET</th>
+                <th className="px-3 py-2 text-left font-normal">OPENED</th>
+                <th className="px-3 py-2 text-right font-normal">HELD</th>
+                <th className="px-3 py-2 text-right font-normal">SIZE</th>
+                <th className="px-3 py-2 text-right font-normal">NET</th>
+                <th className="px-3 py-2 text-right font-normal">RETURN</th>
+                <th className="px-3 py-2 text-right font-normal"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.slice(0, visible).map((ep) => {
+                const w = windows.get(ep.id);
+                const kind = kindOf(ep.coin, markets);
+                const label = labelFor(ep.coin, markets);
+                const roe = returnOf(ep.net, ep.peakNotional);
+                const tone =
+                  ep.side === "LONG" ? UP : ep.side === "SHORT" ? DOWN : FLIPPED;
+                const dead = !w;
+
+                return (
+                  <tr
+                    key={ep.id}
+                    onClick={() => w && onOpen(ep)}
+                    className={`group border-b border-divider transition-colors duration-[120ms] last:border-b-0 ${
+                      dead ? "opacity-45" : "cursor-pointer hover:bg-inset/40"
+                    }`}
+                  >
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <CoinIcon coin={ep.coin} label={label} size={16} />
+                        <span className="text-tx">{label}</span>
+                        <span
+                          className="text-[10px] tracking-[0.08em]"
+                          style={{ color: tone }}
+                        >
+                          {ep.side}
+                        </span>
+                        {kind !== "perp" && (
+                          <span className="text-[9px] tracking-[0.08em] text-faint">
+                            {kind === "spot" ? "SPOT" : "HIP-3"}
+                          </span>
+                        )}
+                        {ep.closedByLiquidation && (
+                          <span className="rounded-[4px] bg-error/15 px-1.5 py-px text-[9px] tracking-[0.08em] text-error">
+                            LIQ
+                          </span>
+                        )}
+                        {ep.open && (
+                          <span className="rounded-[4px] border border-border px-1.5 py-px text-[9px] tracking-[0.08em] text-faint">
+                            OPEN
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-3 py-2.5 text-muted">{when(ep.start)}</td>
+                    <td className="px-3 py-2.5 text-right text-muted">
+                      {ep.open ? "–" : duration(ep.end - ep.start)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-muted">
+                      {usdCompact(ep.peakNotional)}
+                    </td>
+                    <td
+                      className="px-3 py-2.5 text-right"
+                      style={{ color: ep.open ? FAINT : ep.net >= 0 ? UP : DOWN }}
+                    >
+                      {ep.open ? "–" : signedUsd(ep.net)}
+                    </td>
+                    <td
+                      className="px-3 py-2.5 text-right"
+                      style={{
+                        color: ep.open || roe === null ? FAINT : roe >= 0 ? UP : DOWN,
+                      }}
+                    >
+                      {ep.open || roe === null ? "–" : pct(roe)}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-2.5 text-right">
+                      {w ? (
+                        <span
+                          className={`text-[11px] transition-colors duration-[120ms] ${
+                            opening === ep.id
+                              ? "text-accent"
+                              : "text-faint group-hover:text-accent-soft"
+                          }`}
+                        >
+                          {opening === ep.id ? "Drawing…" : "Watch →"}
+                        </span>
+                      ) : (
+                        <span
+                          className="cursor-help text-[11px] text-faint"
+                          title={whyNoWindow(ep.start, ep.end)}
+                        >
+                          No bars left
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {visible < shown.length && (
+        <button
+          onClick={() => setVisible((v) => v + PAGE_ROWS)}
+          className="w-full border-t border-border py-2.5 text-[11px] text-muted transition-colors duration-[120ms] hover:bg-inset/40 hover:text-tx"
+        >
+          Show {Math.min(PAGE_ROWS, shown.length - visible)} more
+        </button>
+      )}
     </Panel>
+  );
+}
+
+function Chip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      className={`flex shrink-0 items-center gap-1.5 rounded-[6px] border px-2 py-1 text-[11px] transition-colors duration-[120ms] ${
+        active
+          ? "border-accent-soft text-tx"
+          : "border-border text-muted hover:border-muted hover:text-tx"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
