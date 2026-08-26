@@ -120,7 +120,20 @@ export async function fills(
   user: string,
   startTime: number,
   endTime: number,
-  opts: { maxPages?: number; signal?: AbortSignal; onPage?: (total: number) => void } = {},
+  opts: {
+    maxPages?: number;
+    signal?: AbortSignal;
+    /**
+     * Called with everything read so far, after each page.
+     *
+     * The fills themselves and not a count, so a caller can render what it has while the
+     * walk continues. A heavy wallet is six thousand fills over four round trips, and
+     * holding the first three thousand back until the fourth returns is a blank screen for
+     * no reason: the positions built from a partial read are correct, there are simply
+     * fewer of them.
+     */
+    onPage?: (soFar: Fill[]) => void;
+  } = {},
 ): Promise<Fill[]> {
   const maxPages = opts.maxPages ?? 8;
   const out: Fill[] = [];
@@ -133,7 +146,7 @@ export async function fills(
     );
     if (!page.length) break;
     for (const f of page) out.push(parseFill(f));
-    opts.onPage?.(out.length);
+    opts.onPage?.(out);
     if (page.length < PAGE) break;
     cursor = page[page.length - 1]!.time + 1;
   }

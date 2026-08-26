@@ -45,7 +45,10 @@ const MAX_PAGES = 14;
 
 type Phase =
   | { k: "idle" }
+  /** Nothing on screen yet. */
   | { k: "loading"; note: string }
+  /** Rows are up and more are still coming. */
+  | { k: "streaming"; note: string }
   | { k: "ready" }
   | { k: "error"; message: string };
 
@@ -84,11 +87,22 @@ export function WalletBrowser({
     setPhase({ k: "loading", note: "reading fills" });
 
     try {
+      /**
+       * Rendered as it arrives, not after it all has.
+       *
+       * Segmenting a partial read gives correct positions, just fewer of them, so the
+       * table can be on screen after the first round trip and fill in behind itself. The
+       * alternative was several seconds of skeleton on a wallet like Wynn's for no reason
+       * other than that the loop had not finished.
+       */
       const raw = await fetchFills(who, SINCE, Date.now(), {
         signal: ctl.signal,
         maxPages: MAX_PAGES,
-        onPage: (total) =>
-          setPhase({ k: "loading", note: `${total.toLocaleString()} fills` }),
+        onPage: (soFar) => {
+          if (ctl.signal.aborted) return;
+          setEps(segment(soFar, who));
+          setPhase({ k: "streaming", note: `${soFar.length.toLocaleString()} fills` });
+        },
       });
       if (ctl.signal.aborted) return;
       setEps(segment(raw, who));
@@ -190,7 +204,7 @@ export function WalletBrowser({
       <div className="hl-fade flex flex-col gap-3">
         <button
           onClick={() => setReplay(null)}
-          className="flex w-fit items-center gap-1.5 text-[11px] text-muted transition-colors duration-[120ms] hover:text-tx"
+          className="flex w-fit items-center gap-1.5 text-mini text-muted transition-colors duration-[120ms] hover:text-tx"
         >
           <span aria-hidden>←</span> All positions
         </button>
@@ -206,6 +220,7 @@ export function WalletBrowser({
   }
 
   const busy = phase.k === "loading";
+  const streaming = phase.k === "streaming";
   /** On a wallet route the address is already in the nav, so the hero form is redundant. */
   const showForm = !initial;
 
@@ -232,13 +247,13 @@ export function WalletBrowser({
               spellCheck={false}
               autoComplete="off"
               aria-label="Hyperliquid address"
-              className="min-w-0 flex-1 bg-transparent text-[13px] text-tx outline-none placeholder:text-faint"
+              className="min-w-0 flex-1 bg-transparent text-read text-tx outline-none placeholder:text-faint"
             />
           </div>
           <button
             type="submit"
             disabled={busy}
-            className="h-[42px] rounded-[8px] bg-accent-soft px-7 text-[12px] text-accent-text transition-[filter,transform] duration-[120ms] hover:brightness-105 active:scale-[0.99] disabled:bg-accent-dim disabled:text-muted"
+            className="h-[42px] rounded-[8px] bg-accent-soft px-7 text-body text-accent-text transition-[filter,transform] duration-[120ms] hover:brightness-105 active:scale-[0.99] disabled:bg-accent-dim disabled:text-muted"
           >
             {busy ? "Loading" : "Search"}
           </button>
@@ -248,23 +263,29 @@ export function WalletBrowser({
       {busy && <LoadingPanel note={phase.note} />}
 
       {phase.k === "error" && (
-        <div className="hl-fade rounded-[8px] border border-error/40 bg-error/10 px-3.5 py-2.5 text-[12px] text-error">
+        <div className="hl-fade rounded-[8px] border border-error/40 bg-error/10 px-3.5 py-2.5 text-body text-error">
           {phase.message}
         </div>
       )}
 
       {phase.k === "ready" && eps.length === 0 && (
         <Panel>
-          <p className="py-8 text-center text-[12px] text-faint">
+          <p className="py-8 text-center text-body text-faint">
             No trades found for that wallet.
           </p>
         </Panel>
       )}
 
-      {!busy && eps.length > 0 && (
+      {eps.length > 0 && (
         <div className="hl-fade flex flex-col gap-3">
           <Summary eps={eps} />
-          <EpisodeTable eps={eps} markets={markets} onOpen={open} opening={opening} />
+          <EpisodeTable
+            eps={eps}
+            markets={markets}
+            onOpen={open}
+            opening={opening}
+            streaming={streaming ? phase.note : null}
+          />
         </div>
       )}
     </div>
@@ -351,11 +372,14 @@ function EpisodeTable({
   markets,
   onOpen,
   opening,
+  streaming,
 }: {
   eps: Episode[];
   markets: Map<string, Market> | null;
   onOpen: (ep: Episode) => void;
   opening: string | null;
+  /** Fill count while more history is still arriving, or null once it is all in. */
+  streaming: string | null;
 }) {
   const [sort, setSort] = useState<Sort>("stake");
   const [market, setMarket] = useState<string | null>(null);
@@ -414,7 +438,13 @@ function EpisodeTable({
     <Panel
       label="POSITIONS"
       aside={
-        <span className="text-faint">
+        <span className="flex items-center gap-2 text-faint">
+          {streaming && (
+            <span className="flex items-center gap-1.5 text-accent-soft">
+              <span className="inline-block h-1.5 w-1.5 animate-[hl-pulse_1.2s_ease-in-out_infinite] rounded-full bg-accent-soft" />
+              {streaming}
+            </span>
+          )}
           {shown.length === eps.length
             ? `${eps.length} · ${drawable} replayable`
             : `${shown.length} of ${eps.length}`}
@@ -444,7 +474,7 @@ function EpisodeTable({
           <button
             onClick={() => setOnlyDrawable((v) => !v)}
             aria-pressed={onlyDrawable}
-            className={`rounded-[6px] border px-2 py-1 text-[10px] tracking-[0.06em] transition-colors duration-[120ms] ${
+            className={`rounded-[6px] border px-2 py-1 text-micro tracking-[0.06em] transition-colors duration-[120ms] ${
               onlyDrawable
                 ? "border-accent-soft text-accent"
                 : "border-border text-faint hover:border-muted hover:text-muted"
@@ -459,7 +489,7 @@ function EpisodeTable({
                 key={o.key}
                 onClick={() => setSort(o.key)}
                 aria-pressed={sort === o.key}
-                className={`rounded-[4px] px-2 py-0.5 text-[10px] transition-colors duration-[120ms] ${
+                className={`rounded-[4px] px-2 py-0.5 text-micro transition-colors duration-[120ms] ${
                   sort === o.key ? "bg-inset text-tx" : "text-faint hover:text-muted"
                 }`}
               >
@@ -471,14 +501,20 @@ function EpisodeTable({
       </div>
 
       {shown.length === 0 ? (
-        <p className="px-3 py-8 text-center text-[12px] text-faint">
+        <p className="px-3 py-8 text-center text-body text-faint">
           Nothing matches that filter.
         </p>
       ) : (
         <div className="scrollers overflow-x-auto">
-          <table className="w-full min-w-[720px] border-collapse text-[12px]">
-            <thead>
-              <tr className="border-b border-border text-[10px] tracking-[0.08em] text-faint">
+          <table className="w-full min-w-[720px] border-collapse text-body">
+            {/*
+              Sticky, because a catalogue is scrolled and a table that loses its headers
+              on the first flick is asking you to remember which column is which.
+              `bg-ground` is not optional here: a transparent sticky row lets the cells
+              underneath show through it.
+            */}
+            <thead className="sticky top-0 z-10 bg-ground">
+              <tr className="border-b border-border text-micro tracking-[0.08em] text-faint">
                 <th className="px-3 py-2 text-left font-normal">MARKET</th>
                 <th className="px-3 py-2 text-left font-normal">OPENED</th>
                 <th className="px-3 py-2 text-right font-normal">HELD</th>
@@ -511,23 +547,23 @@ function EpisodeTable({
                         <CoinIcon coin={ep.coin} label={label} size={16} />
                         <span className="text-tx">{label}</span>
                         <span
-                          className="text-[10px] tracking-[0.08em]"
+                          className="text-micro tracking-[0.08em]"
                           style={{ color: tone }}
                         >
                           {ep.side}
                         </span>
                         {kind !== "perp" && (
-                          <span className="text-[9px] tracking-[0.08em] text-faint">
+                          <span className="text-micro tracking-[0.08em] text-faint">
                             {kind === "spot" ? "SPOT" : "HIP-3"}
                           </span>
                         )}
                         {ep.closedByLiquidation && (
-                          <span className="rounded-[4px] bg-error/15 px-1.5 py-px text-[9px] tracking-[0.08em] text-error">
+                          <span className="rounded-[4px] bg-error/15 px-1.5 py-px text-micro tracking-[0.08em] text-error">
                             LIQ
                           </span>
                         )}
                         {ep.open && (
-                          <span className="rounded-[4px] border border-border px-1.5 py-px text-[9px] tracking-[0.08em] text-faint">
+                          <span className="rounded-[4px] border border-border px-1.5 py-px text-micro tracking-[0.08em] text-faint">
                             OPEN
                           </span>
                         )}
@@ -556,18 +592,29 @@ function EpisodeTable({
                     </td>
                     <td className="whitespace-nowrap px-3 py-2.5 text-right">
                       {w ? (
-                        <span
-                          className={`text-[11px] transition-colors duration-[120ms] ${
+                        /*
+                          A real button, not a span dressed as one. The row carries the
+                          click for the mouse, but a table row is not focusable and cannot
+                          be pressed, so without this the whole catalogue was unusable from
+                          the keyboard and invisible to a screen reader.
+                        */
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onOpen(ep);
+                          }}
+                          aria-label={`Replay ${label} ${ep.side} ${signedUsd(ep.net)}`}
+                          className={`rounded-[4px] text-mini transition-colors duration-[120ms] ${
                             opening === ep.id
                               ? "text-accent"
                               : "text-faint group-hover:text-accent-soft"
                           }`}
                         >
                           {opening === ep.id ? "Drawing…" : "Watch →"}
-                        </span>
+                        </button>
                       ) : (
                         <span
-                          className="cursor-help text-[11px] text-faint"
+                          className="cursor-help text-mini text-faint"
                           title={whyNoWindow(ep.start, ep.end)}
                         >
                           No bars left
@@ -585,7 +632,7 @@ function EpisodeTable({
       {visible < shown.length && (
         <button
           onClick={() => setVisible((v) => v + PAGE_ROWS)}
-          className="w-full border-t border-border py-2.5 text-[11px] text-muted transition-colors duration-[120ms] hover:bg-inset/40 hover:text-tx"
+          className="w-full border-t border-border py-2.5 text-mini text-muted transition-colors duration-[120ms] hover:bg-inset/40 hover:text-tx"
         >
           Show {Math.min(PAGE_ROWS, shown.length - visible)} more
         </button>
@@ -607,7 +654,7 @@ function Chip({
     <button
       onClick={onClick}
       aria-pressed={active}
-      className={`flex shrink-0 items-center gap-1.5 rounded-[6px] border px-2 py-1 text-[11px] transition-colors duration-[120ms] ${
+      className={`flex shrink-0 items-center gap-1.5 rounded-[6px] border px-2 py-1 text-mini transition-colors duration-[120ms] ${
         active
           ? "border-accent-soft text-tx"
           : "border-border text-muted hover:border-muted hover:text-tx"

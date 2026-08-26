@@ -685,32 +685,32 @@ export function Replay({ data }: { data: ReplayData }) {
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3 py-2.5">
               <div className="flex items-center gap-2.5">
                 <CoinIcon coin={data.coin} label={data.label} size={20} />
-                <span className="text-[15px] leading-none text-title">{data.label}</span>
+                <span className="text-lead leading-none text-title">{data.label}</span>
                 <span
-                  className="text-[10px] tracking-[0.08em]"
+                  className="text-micro tracking-[0.08em]"
                   style={{ color: sideTone }}
                 >
                   {data.side}
                 </span>
                 {data.closedByLiquidation && (
-                  <span className="rounded-[4px] bg-error/15 px-1.5 py-0.5 text-[9px] tracking-[0.08em] text-error">
+                  <span className="rounded-[4px] bg-error/15 px-1.5 py-0.5 text-micro tracking-[0.08em] text-error">
                     LIQUIDATED
                   </span>
                 )}
                 {data.open && (
-                  <span className="rounded-[4px] border border-border px-1.5 py-0.5 text-[9px] tracking-[0.08em] text-faint">
+                  <span className="rounded-[4px] border border-border px-1.5 py-0.5 text-micro tracking-[0.08em] text-faint">
                     OPEN
                   </span>
                 )}
-                <span className="hidden text-[11px] text-faint sm:inline">
+                <span className="hidden text-mini text-faint sm:inline">
                   {shortAddress(data.wallet, 6)} · {held} · {bars} × {data.interval}
                 </span>
               </div>
 
               <div className="flex items-baseline gap-2.5">
-                <span className="text-[10px] tracking-[0.08em] text-faint">PNL</span>
+                <span className="text-micro tracking-[0.08em] text-faint">PNL</span>
                 <span
-                  className="text-[22px] leading-none tabular-nums"
+                  className="text-head leading-none tabular-nums"
                   style={{ color: total >= 0 ? UP : DOWN }}
                 >
                   {signedUsd(total)}
@@ -725,7 +725,7 @@ export function Replay({ data }: { data: ReplayData }) {
                 {recent.map((f) => (
                   <div
                     key={f.key}
-                    className="hl-rise rounded-[6px] px-2 py-1 text-[11px] backdrop-blur-[2px]"
+                    className="hl-rise rounded-[6px] px-2 py-1 text-mini backdrop-blur-[2px]"
                     style={{
                       background: f.liq
                         ? "#97fce41f"
@@ -741,7 +741,7 @@ export function Replay({ data }: { data: ReplayData }) {
                 ))}
               </div>
 
-              <div className="pointer-events-none absolute bottom-3 left-3 text-[11px] text-faint">
+              <div className="pointer-events-none absolute bottom-3 left-3 text-mini text-faint">
                 {point && Math.abs(point.qty) > 1e-9
                   ? `${size(Math.abs(point.qty))} @ ${price(data.avgEntry)}`
                   : "flat"}
@@ -758,20 +758,20 @@ export function Replay({ data }: { data: ReplayData }) {
                  */
                 <div className="hl-fade pointer-events-none absolute inset-0 flex items-center justify-center bg-ground/80 backdrop-blur-[2px]">
                   <div className="flex flex-col items-center gap-3">
-                    <span className="text-[10px] tracking-[0.24em] text-faint">
+                    <span className="text-micro tracking-[0.24em] text-faint">
                       {data.closedByLiquidation ? "LIQUIDATED" : "CLOSED"}
                     </span>
 
                     <div className="flex items-baseline gap-3">
                       <span
-                        className="text-[46px] leading-none tabular-nums"
+                        className="text-hero leading-none tabular-nums"
                         style={{ color: data.net >= 0 ? UP : DOWN }}
                       >
                         {signedUsd(data.net)}
                       </span>
                       {data.roe !== null && (
                         <span
-                          className="text-[22px] leading-none tabular-nums"
+                          className="text-head leading-none tabular-nums"
                           style={{ color: data.roe >= 0 ? UP : DOWN }}
                         >
                           {pct(data.roe)}
@@ -779,7 +779,7 @@ export function Replay({ data }: { data: ReplayData }) {
                       )}
                     </div>
 
-                    <div className="flex items-center gap-5 text-[11px] text-muted">
+                    <div className="flex items-center gap-5 text-mini text-muted">
                       <span>
                         <span className="text-faint">held </span>
                         {held}
@@ -841,7 +841,7 @@ export function Replay({ data }: { data: ReplayData }) {
                     key={sp}
                     onClick={() => setSpeed(sp)}
                     aria-pressed={speed === sp}
-                    className={`w-[36px] text-[11px] leading-none transition-colors duration-[120ms] ${
+                    className={`w-[36px] text-mini leading-none transition-colors duration-[120ms] ${
                       speed === sp
                         ? "bg-inset text-tx"
                         : "text-faint hover:bg-inset/40 hover:text-muted"
@@ -876,9 +876,9 @@ export function Replay({ data }: { data: ReplayData }) {
                 aria-label="Scrub"
               />
 
-              <span className="shrink-0 text-[11px] tabular-nums text-faint">
+              <span className="shrink-0 text-mini tabular-nums text-faint">
                 {clock(data.candles[Math.min(cursor, bars - 1)]!.t)}
-                <span className="text-[10px]"> / {clock(data.candles[bars - 1]!.t)}</span>
+                <span className="text-micro"> / {clock(data.candles[bars - 1]!.t)}</span>
               </span>
             </div>
           </Panel>
@@ -931,7 +931,7 @@ export function Replay({ data }: { data: ReplayData }) {
         flush
       >
         <div className="scrollers max-h-[260px] overflow-auto">
-          <table className="w-full min-w-[520px] border-collapse text-[11px]">
+          <table className="w-full min-w-[520px] border-collapse text-mini">
             <tbody>
               {shownFills.map((f) => (
                 <tr key={f.tid} className="border-b border-divider last:border-b-0">
@@ -967,8 +967,8 @@ function Row({ label, value, tone }: { label: string; value: string; tone?: numb
   const color = tone === undefined ? "#f6fefd" : tone >= 0 ? UP : DOWN;
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-divider px-3 py-2 last:border-b-0">
-      <dt className="text-[11px] text-faint">{label}</dt>
-      <dd className="text-[12px] tabular-nums" style={{ color }}>
+      <dt className="text-mini text-faint">{label}</dt>
+      <dd className="text-body tabular-nums" style={{ color }}>
         {value}
       </dd>
     </div>
@@ -1121,7 +1121,7 @@ function Export({ data }: { data: ReplayData }) {
               key={s}
               onClick={() => setShape(s)}
               disabled={busy}
-              className={`rounded-[6px] py-1 text-[11px] transition-colors duration-[120ms] ${
+              className={`rounded-[6px] py-1 text-mini transition-colors duration-[120ms] ${
                 shape === s ? "bg-inset text-tx" : "text-faint hover:text-muted"
               }`}
             >
@@ -1132,7 +1132,7 @@ function Export({ data }: { data: ReplayData }) {
 
         <button
           onClick={busy ? () => (cancelled.current = true) : run}
-          className="h-[30px] rounded-[8px] border border-border text-[11px] text-tx transition-colors duration-[120ms] hover:border-accent-soft hover:text-accent"
+          className="h-[30px] rounded-[8px] border border-border text-mini text-tx transition-colors duration-[120ms] hover:border-accent-soft hover:text-accent"
         >
           {busy ? `Cancel · ${Math.round(progress * 100)}%` : "Export MP4"}
         </button>
@@ -1145,12 +1145,12 @@ function Export({ data }: { data: ReplayData }) {
             />
           </div>
         ) : (
-          <p className="text-[10px] text-faint">
+          <p className="text-micro text-faint">
             {FORMATS[shape].w}&times;{FORMATS[shape].h}
           </p>
         )}
 
-        {error && <p className="text-[11px] text-error">{error}</p>}
+        {error && <p className="text-mini text-error">{error}</p>}
       </div>
     </Panel>
   );

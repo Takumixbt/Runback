@@ -41,7 +41,7 @@ export function Nav() {
     <nav className="flex h-[46px] shrink-0 items-center justify-between gap-4 border-b border-border px-4">
       <Link href="/" className="flex items-center gap-2">
         <Logo size={20} />
-        <span className="text-[15px] leading-none tracking-[-0.01em] text-title">
+        <span className="text-lead leading-none tracking-[-0.01em] text-title">
           Runback
         </span>
       </Link>
@@ -74,7 +74,7 @@ export function Nav() {
               spellCheck={false}
               autoComplete="off"
               aria-label="Look up a Hyperliquid address"
-              className="min-w-0 flex-1 bg-transparent text-[11px] text-tx outline-none placeholder:text-faint"
+              className="min-w-0 flex-1 bg-transparent text-mini text-tx outline-none placeholder:text-faint"
             />
           </div>
         </form>

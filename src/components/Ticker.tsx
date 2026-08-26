@@ -48,7 +48,7 @@ export function Ticker() {
           return (
             <div
               key={`${m.coin}-${i}`}
-              className="flex shrink-0 items-center gap-2 text-[12px] leading-none"
+              className="flex shrink-0 items-center gap-2 text-body leading-none"
               aria-hidden={i >= board.marks.length}
             >
               <CoinIcon coin={m.coin} label={m.label} size={18} />
