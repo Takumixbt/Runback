@@ -260,7 +260,21 @@ export async function encode(
 
   const video = new CanvasSource(canvas, {
     codec: o.encoders.video,
-    quality: new Quality(bitrateFor(w, h, o.fps)),
+    /**
+     * `{ bitrate }`, not a bare number.
+     *
+     * `new Quality(n)` reads a lone number as a QUALITY LEVEL on a 0-to-1 scale, not as
+     * bits per second, so handing it 11,819,520 asked for a quality eleven million times
+     * the maximum. Mediabunny resolves that to quantizer 0 at an unbounded bitrate, which
+     * derives a codec string of avc1.64003e (High, level 6.2, the 8K tier) and every
+     * browser refuses to configure it:
+     *
+     *   "This specific encoder configuration (avc1.64003e, quantizer 0 / Infinity bps,
+     *    1920x1080) is not supported in this environment."
+     *
+     * Export was broken for every format and every clip.
+     */
+    quality: new Quality({ bitrate: bitrateFor(w, h, o.fps) }),
     keyFrameInterval: 2,
   });
   output.addVideoTrack(video, { frameRate: o.fps });
@@ -273,7 +287,7 @@ export async function encode(
     o.audio && o.encoders.audio
       ? new AudioBufferSource({
           codec: o.encoders.audio,
-          quality: new Quality(128_000),
+          quality: new Quality({ bitrate: 128_000 }),
         })
       : null;
   if (audio) output.addAudioTrack(audio);
