@@ -50,6 +50,14 @@ const STEP_MS = 600;
 const BAR_SPACING = 9;
 
 /**
+ * The most arrows a chart will carry, liquidations excepted.
+ *
+ * Enough to show where a position was built and taken off, few enough that each one is
+ * still a separate thing you can look at.
+ */
+const MAX_MARKERS = 40;
+
+/**
  * Every bar gets the same time. There is no emphasis and that is deliberate.
  *
  * Holding fill bars longer than quiet ones sounded like a good idea and watched terribly:
@@ -86,6 +94,13 @@ export function Replay({ data }: { data: ReplayData }) {
 
   const [cursor, setCursor] = useState(0);
   const [playing, setPlaying] = useState(true);
+  /**
+   * Playback actually reached the end, which is not the same as the cursor being on the
+   * last bar. The cursor lands there the moment that bar STARTS forming, so keying the end
+   * card off it put the card up over a candle that was still growing, and then held it
+   * while the last of the price action happened behind it.
+   */
+  const [finished, setFinished] = useState(false);
     const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
   const [muted, setMuted] = useState(true);
 
@@ -161,35 +176,50 @@ export function Replay({ data }: { data: ReplayData }) {
    * into a slice of a pre-sorted array, so the cost stops scaling with fill count.
    */
   const { markers: allMarkers, upto: markersUpto } = useMemo(() => {
-    const byBar = new Map<number, { buy: number; sell: number; liq: boolean; n: number }>();
+    const byBar = new Map<number, { buy: number; sell: number; liq: boolean }>();
     for (const f of data.fills) {
       const b = Math.max(0, barOf(f.time));
-      const cell = byBar.get(b) ?? { buy: 0, sell: 0, liq: false, n: 0 };
+      const cell = byBar.get(b) ?? { buy: 0, sell: 0, liq: false };
       if (f.side === "B") cell.buy += f.sz * f.px;
       else cell.sell += f.sz * f.px;
       if (wasLiquidated(f)) cell.liq = true;
-      cell.n += 1;
       byBar.set(b, cell);
     }
 
-    const bars = [...byBar.keys()].sort((a, b) => a - b);
-    const markers: SeriesMarker<Time>[] = bars.map((b) => {
-      const cell = byBar.get(b)!;
+    /**
+     * Only the bars that actually carried the position get an arrow.
+     *
+     * Merging fills per bar was not enough on its own. Machi's HYPE position is 644 fills
+     * and his BTC one 735, scaled in and out continuously, so nearly every bar earned a
+     * marker and the chart wore two unbroken ribbons of arrowheads along its edges. The
+     * position was invisible behind the annotation of it.
+     *
+     * Ranking bars by the money that moved and keeping the largest leaves the entries, the
+     * exits and the big adds, which is the shape of the trade. Everything dropped is a
+     * top-up too small to change the story, and it is still in the fill table underneath.
+     * Liquidations are never dropped, whatever they cost.
+     */
+    const scored = [...byBar.entries()].map(([bar, cell]) => ({
+      bar,
+      cell,
+      moved: cell.buy + cell.sell,
+    }));
+    const keep = new Set<number>();
+    for (const s of scored) if (s.cell.liq) keep.add(s.bar);
+    scored
+      .filter((s) => !s.cell.liq)
+      .sort((a, b) => b.moved - a.moved)
+      .slice(0, Math.max(0, MAX_MARKERS - keep.size))
+      .forEach((s) => keep.add(s.bar));
+
+    const kept = scored.filter((s) => keep.has(s.bar)).sort((a, b) => a.bar - b.bar);
+    const markers: SeriesMarker<Time>[] = kept.map(({ bar, cell }) => {
       const isBuy = cell.buy >= cell.sell;
       return {
-        time: (data.candles[b]!.t / 1000) as UTCTimestamp,
+        time: (data.candles[bar]!.t / 1000) as UTCTimestamp,
         position: isBuy ? "belowBar" : "aboveBar",
         color: cell.liq ? ACCENT : isBuy ? UP : DOWN,
-        /**
-         * Circles, not arrows.
-         *
-         * An arrow is drawn large enough to have a direction, so at nine pixels a bar it
-         * is wider than the candle it belongs to and a run of them merges into a solid
-         * band along the axis. A dot sits under its own bar and the side is already said
-         * by the colour.
-         */
-        shape: "circle",
-        size: cell.liq ? 2 : 1,
+        shape: isBuy ? "arrowUp" : "arrowDown",
         text: cell.liq ? "LIQ" : "",
       };
     });
@@ -198,7 +228,7 @@ export function Replay({ data }: { data: ReplayData }) {
     const upto = new Int32Array(data.candles.length);
     let k = 0;
     for (let i = 0; i < data.candles.length; i += 1) {
-      while (k < bars.length && bars[k]! <= i) k += 1;
+      while (k < kept.length && kept[k]!.bar <= i) k += 1;
       upto[i] = k;
     }
     return { markers, upto };
@@ -479,33 +509,46 @@ export function Replay({ data }: { data: ReplayData }) {
     if (!playing || bars === 0) return;
     if (cursorRef.current >= bars - 1) {
       setPlaying(false);
+      setFinished(true);
       return;
     }
 
     let raf = 0;
-    let last = performance.now();
+    let previous = performance.now();
     /** Time spent inside the CURRENT bar, which is what makes it form. */
     let acc = 0;
 
+    const last = bars - 1;
+
     const frame = (now: number) => {
-      acc += (now - last) * speed;
-      last = now;
+      acc += (now - previous) * speed;
+      previous = now;
 
       let c = cursorRef.current;
       // A bar at a time, so a long frame crosses several without skipping any.
-      while (c < bars - 1 && acc >= STEP_MS) {
+      while (c < last && acc >= STEP_MS) {
         acc -= STEP_MS;
         c += 1;
       }
 
-      paintTo(c, c >= bars - 1 ? 1 : acc / STEP_MS);
+      /**
+       * The final bar forms like every other one.
+       *
+       * It used to be painted straight to its close the instant the cursor reached it and
+       * the loop stopped in the same frame, so a replay ended on a jump: the last candle
+       * snapped to full height with no growth and the card landed on top of it. Letting its
+       * own step run means the trade finishes at the same pace it was watched at.
+       */
+      paintTo(c, Math.min(1, acc / STEP_MS));
 
       if (c !== cursorRef.current) {
         cursorRef.current = c;
         setCursor(c);
       }
-      if (c >= bars - 1) {
+
+      if (c >= last && acc >= STEP_MS) {
         setPlaying(false);
+        setFinished(true);
         return;
       }
       raf = requestAnimationFrame(frame);
@@ -515,11 +558,12 @@ export function Replay({ data }: { data: ReplayData }) {
     return () => cancelAnimationFrame(raf);
   }, [playing, speed, bars, paintTo]);
 
-  const done = cursor >= bars - 1;
+  const done = finished;
 
   const restart = useCallback(() => {
     cursorRef.current = 0;
     setCursor(0);
+    setFinished(false);
     paintedRef.current = -1;
     soundedRef.current = -1;
     milestoneRef.current = 0;
@@ -534,6 +578,7 @@ export function Replay({ data }: { data: ReplayData }) {
   const step = useCallback(
     (bars5: number) => {
       setPlaying(false);
+      setFinished(false);
       setCursor((c) => Math.min(Math.max(0, c + bars5 * 5), bars - 1));
     },
     [bars],
