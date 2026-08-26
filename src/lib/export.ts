@@ -33,6 +33,7 @@ import {
   type Shape,
 } from "@/lib/clip";
 import { paint, type PaintFill } from "@/lib/frame";
+import { duration } from "@/lib/format";
 import type { Replay } from "@/lib/episodes";
 import { renderTrack, type TimedCue } from "@/lib/sound";
 
@@ -390,7 +391,7 @@ export async function exportClip(
           qty: point?.qty ?? 0,
           avgEntry: data.avgEntry,
           fills: i >= replayFrames ? [] : fillsFor(nowMs),
-          liquidated: data.liquidated,
+          liquidated: data.closedByLiquidation,
           outro:
             i <= replayFrames
               ? 0
@@ -402,6 +403,9 @@ export async function exportClip(
             roe: data.roe ?? 0,
             peak: data.peak,
             trough: data.trough,
+            held: duration(
+              data.candles[bars - 1]!.t - data.candles[0]!.t,
+            ),
           },
         });
       },

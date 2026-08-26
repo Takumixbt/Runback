@@ -65,7 +65,16 @@ export interface FrameState {
   /** 0 while the replay runs; 0..1 across the end card. */
   outro: number;
   /** Final figures, for the end card. */
-  final: { net: number; realized: number; fees: number; roe: number; peak: number; trough: number };
+  final: {
+    net: number;
+    realized: number;
+    fees: number;
+    roe: number;
+    peak: number;
+    trough: number;
+    /** Already formatted; the painter does not know what a duration is. */
+    held: string;
+  };
 }
 
 interface TextOptions {
@@ -347,7 +356,7 @@ function paintOutro(ctx: CanvasRenderingContext2D, s: FrameState): void {
   const t = L.type;
 
   ctx.save();
-  ctx.globalAlpha = p * 0.88;
+  ctx.globalAlpha = p * 0.9;
   ctx.fillStyle = GROUND;
   ctx.fillRect(0, 0, L.w, L.h);
   ctx.restore();
@@ -356,17 +365,17 @@ function paintOutro(ctx: CanvasRenderingContext2D, s: FrameState): void {
   const cy = L.h / 2;
   const net = s.final.net;
 
-  draw(ctx, s.liquidated ? "LIQUIDATED" : net >= 0 ? "CLOSED" : "CLOSED", cx, cy - 96 * t, {
+  draw(ctx, s.liquidated ? "LIQUIDATED" : "CLOSED", cx, cy - 104 * t, {
     size: 26 * t,
     weight: 400,
     color: s.liquidated ? AMBER : TX3,
     align: "center",
-    tracking: 6 * t,
+    tracking: 7 * t,
     alpha: p,
   });
 
-  draw(ctx, signedUsd(net), cx, cy + 20 * t, {
-    size: 118 * t,
+  draw(ctx, signedUsd(net), cx, cy + 8 * t, {
+    size: 112 * t,
     weight: 700,
     color: toneOf(net),
     align: "center",
@@ -374,11 +383,44 @@ function paintOutro(ctx: CanvasRenderingContext2D, s: FrameState): void {
     alpha: p,
   });
 
-  draw(ctx, `${pct(s.final.roe)} · ${s.label} ${s.side}`, cx, cy + 74 * t, {
+  draw(ctx, `${pct(s.final.roe)} · ${s.label} ${s.side}`, cx, cy + 58 * t, {
     size: 30 * t,
     color: TX2,
     align: "center",
     alpha: p,
+  });
+
+  /**
+   * The row the on-screen card carries, brought to the clip.
+   *
+   * A net figure alone is a receipt. What somebody sat through to get it is the reason the
+   * replay existed, so the peak, the drawdown and the time held finish the story rather
+   * than being dropped on the last frame.
+   */
+  const cells: [string, string, string][] = [
+    ["HELD", s.final.held, TX],
+    ["PEAK", signedUsd(s.final.peak), MINT],
+    ["DRAWDOWN", signedUsd(s.final.trough), SIGNAL],
+    ["FEES", signedUsd(-s.final.fees), TX2],
+  ];
+  const gap = 150 * t;
+  const left = cx - ((cells.length - 1) * gap) / 2;
+  cells.forEach(([label, value, color], i) => {
+    const x = left + i * gap;
+    draw(ctx, label, x, cy + 116 * t, {
+      size: 17 * t,
+      color: TX3,
+      align: "center",
+      tracking: 2 * t,
+      alpha: p,
+    });
+    draw(ctx, value, x, cy + 150 * t, {
+      size: 28 * t,
+      weight: 500,
+      color,
+      align: "center",
+      alpha: p,
+    });
   });
 
   draw(ctx, "runback", cx, L.h - L.pad - 8 * t, {
