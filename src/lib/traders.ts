@@ -69,6 +69,8 @@ async function pool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>
 }
 
 export interface Highlight {
+  /** Episode id, so a link can open this exact position. */
+  id: string;
   coin: string;
   label: string;
   side: Episode["side"];
@@ -76,6 +78,7 @@ export interface Highlight {
   /** Against the largest position held. Null when that denominator is unusable. */
   roe: number | null;
   at: number;
+  /** Ended on a forced close, not merely containing one. */
   liquidated: boolean;
 }
 
@@ -89,13 +92,14 @@ export interface TraderCard extends Notable {
 
 function highlight(ep: Episode, known: Map<string, Market>): Highlight {
   return {
+    id: ep.id,
     coin: ep.coin,
     label: labelFor(ep.coin, known),
     side: ep.side,
     net: ep.net,
     roe: returnOf(ep.net, ep.peakNotional),
     at: ep.end,
-    liquidated: ep.liquidated,
+    liquidated: ep.closedByLiquidation,
   };
 }
 

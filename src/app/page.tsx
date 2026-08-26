@@ -51,12 +51,14 @@ async function Traders() {
   return (
     <div className="hl-fade grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
       {live.map((t) => (
-        <Link
+        <div
           key={t.address}
-          href={`/w/${t.address}`}
-          className="flex flex-col overflow-hidden rounded-[10px] border border-border transition-[border-color,transform] duration-[120ms] hover:border-muted active:scale-[0.995]"
+          className="flex flex-col overflow-hidden rounded-[10px] border border-border transition-colors duration-[120ms] hover:border-muted"
         >
-          <div className="flex items-center gap-2.5 px-3.5 py-3">
+          <Link
+            href={`/w/${t.address}`}
+            className="flex items-center gap-2.5 px-3.5 py-3 transition-colors duration-[120ms] hover:bg-inset/40"
+          >
             <Avatar address={t.address} name={t.name} src={t.avatar} size={32} />
             <span className="flex min-w-0 flex-col gap-1">
               <span className="truncate text-[13px] leading-none text-title">{t.name}</span>
@@ -67,13 +69,18 @@ async function Traders() {
               )}
             </span>
             <span className="ml-auto shrink-0 text-[11px] text-faint">{t.positions}</span>
-          </div>
+          </Link>
 
+          {/*
+            Each cell links at its OWN position, not at the wallet.
+            Landing on a list of sixty and hunting for the number you just read is not
+            "watch this trade", which is what the card is offering.
+          */}
           <div className="grid grid-cols-2 gap-px border-t border-border bg-border">
-            <Trade tag="BEST" h={t.best} />
-            <Trade tag="WORST" h={t.worst} />
+            <Trade tag="BEST" h={t.best} wallet={t.address} />
+            <Trade tag="WORST" h={t.worst} wallet={t.address} />
           </div>
-        </Link>
+        </div>
       ))}
     </div>
   );
@@ -114,7 +121,15 @@ function Steps() {
  * highest net and the right is the lowest, so a wallet with no losing position shows an
  * empty cell rather than two winners.
  */
-function Trade({ tag, h }: { tag: "BEST" | "WORST"; h: Highlight | null }) {
+function Trade({
+  tag,
+  h,
+  wallet,
+}: {
+  tag: "BEST" | "WORST";
+  h: Highlight | null;
+  wallet: string;
+}) {
   if (!h) {
     return (
       <div className="flex flex-col gap-2 bg-ground px-3.5 py-2.5">
@@ -126,7 +141,10 @@ function Trade({ tag, h }: { tag: "BEST" | "WORST"; h: Highlight | null }) {
 
   const tone = h.net >= 0 ? UP : DOWN;
   return (
-    <div className="flex flex-col gap-2 bg-ground px-3.5 py-2.5">
+    <Link
+      href={`/w/${wallet}?p=${encodeURIComponent(h.id)}`}
+      className="group/cell flex flex-col gap-2 bg-ground px-3.5 py-2.5 transition-colors duration-[120ms] hover:bg-inset/40"
+    >
       <div className="flex items-center gap-1.5">
         <span className="text-[9px] tracking-[0.12em] text-faint">{tag}</span>
         {h.liquidated && (
@@ -147,8 +165,11 @@ function Trade({ tag, h }: { tag: "BEST" | "WORST"; h: Highlight | null }) {
         <span className="shrink-0 text-[9px] tracking-[0.08em]" style={{ color: tone }}>
           {h.side}
         </span>
+        <span className="ml-auto shrink-0 text-[10px] text-faint opacity-0 transition-opacity duration-[120ms] group-hover/cell:opacity-100">
+          Watch &rarr;
+        </span>
       </div>
-    </div>
+    </Link>
   );
 }
 

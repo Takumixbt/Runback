@@ -46,7 +46,14 @@ type Phase =
   | { k: "ready" }
   | { k: "error"; message: string };
 
-export function WalletBrowser({ initial }: { initial?: string }) {
+export function WalletBrowser({
+  initial,
+  position,
+}: {
+  initial?: string;
+  /** Episode id from the URL, opened as soon as the list containing it has loaded. */
+  position?: string;
+}) {
   const [address, setAddress] = useState(initial ?? "");
   const [phase, setPhase] = useState<Phase>({ k: "idle" });
   const [eps, setEps] = useState<Episode[]>([]);
@@ -147,6 +154,22 @@ export function WalletBrowser({ initial }: { initial?: string }) {
     },
     [markets],
   );
+
+  /**
+   * Open the position the link asked for.
+   *
+   * Deferred until the list exists, because the episode has to be found before it can be
+   * drawn, and runs once: `opened` stops it reopening the same trade after somebody backs
+   * out of it to the list.
+   */
+  const opened = useRef(false);
+  useEffect(() => {
+    if (!position || opened.current || eps.length === 0) return;
+    const target = eps.find((e) => e.id === position);
+    if (!target) return;
+    opened.current = true;
+    void open(target);
+  }, [position, eps, open]);
 
   useEffect(() => {
     if (initial && isAddress(initial)) void load(initial.toLowerCase());
@@ -354,7 +377,7 @@ function EpisodeTable({
                           {kind === "spot" ? "SPOT" : "HIP-3"}
                         </span>
                       )}
-                      {ep.liquidated && (
+                      {ep.closedByLiquidation && (
                         <span className="rounded-[4px] bg-error/15 px-1.5 py-px text-[9px] tracking-[0.08em] text-error">
                           LIQ
                         </span>

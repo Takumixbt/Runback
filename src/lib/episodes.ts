@@ -46,8 +46,20 @@ export interface Episode {
   fees: number;
   /** Realised minus the fees we could account for. */
   net: number;
-  /** This wallet was forcibly closed inside this episode. The money shot. */
+  /** A forced close of this wallet happened somewhere inside this episode. */
   liquidated: boolean;
+  /**
+   * The position ENDED on a liquidation, rather than merely containing one.
+   *
+   * The difference is the whole story. A high-leverage trader gets partially liquidated
+   * on the way and carries on, so `liquidated` is true for positions that went on to be
+   * their best ever: MEASURED, Andrew Tate has 64 liquidation fills across 133 positions
+   * and his single most profitable one is among them. Badging that "LIQ" reads as a
+   * contradiction, because it is answering a different question than the one being asked.
+   *
+   * This is the one that means "blown out of the trade".
+   */
+  closedByLiquidation: boolean;
   /** The position went from long straight to short or back without passing through flat. */
   flipped: boolean;
   /** Volume-weighted average entry, for the side the episode opened on. */
@@ -149,6 +161,7 @@ export function episodes(all: Fill[], subject?: string): Episode[] {
           fees: 0,
           net: 0,
           liquidated: false,
+          closedByLiquidation: false,
           flipped: false,
           avgEntry: 0,
         };
@@ -187,6 +200,8 @@ export function episodes(all: Fill[], subject?: string): Episode[] {
       }
 
       if (Math.abs(pos) < FLAT) {
+        // Flat, and the fill that got it there was forced: this is a blow-up.
+        cur.closedByLiquidation = f.liquidatedUser !== null && me !== undefined && f.liquidatedUser === me;
         cur.avgEntry = entryQty > 0 ? entryCost / entryQty : f.px;
         cur.net = cur.realized - cur.fees;
         out.push(cur);
@@ -341,6 +356,8 @@ export interface Replay {
   /** Return on the peak notional held. Null when that denominator is unusable. */
   roe: number | null;
   liquidated: boolean;
+  /** Ended on a forced close, rather than merely containing one. */
+  closedByLiquidation: boolean;
   open: boolean;
   truncatedStart: boolean;
 }
@@ -425,6 +442,7 @@ export function buildReplay(
     trough,
     roe: returnOf(ep.net, ep.peakNotional),
     liquidated: ep.liquidated,
+    closedByLiquidation: ep.closedByLiquidation,
     open: ep.open,
     truncatedStart: ep.truncatedStart,
   };

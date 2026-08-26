@@ -9,10 +9,13 @@ import { shortAddress } from "@/lib/format";
  */
 export default async function WalletPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ wallet: string }>;
+  searchParams: Promise<{ p?: string }>;
 }) {
   const { wallet } = await params;
+  const { p } = await searchParams;
   const lower = wallet.toLowerCase();
 
   return (
@@ -35,7 +38,7 @@ export default async function WalletPage({
         </a>
       </header>
 
-      <WalletBrowser initial={lower} />
+      <WalletBrowser initial={lower} position={p} />
     </main>
   );
 }

@@ -39,9 +39,24 @@ const ACCENT = "#97fce4";
  * every replay is watchable in about the same sitting and the speed control means what it
  * says.
  */
-const RUN_MS = 14_000;
-const MIN_STEP_MS = 16;
-const MAX_STEP_MS = 150;
+const MS_PER_BAR = 42;
+const MIN_RUN_MS = 13_000;
+const MAX_RUN_MS = 24_000;
+
+/**
+ * How much longer a bar carrying a fill is held, and how far that spreads either side.
+ *
+ * The whole point of watching a trade rather than reading its number is the moment the
+ * entry lands and the moment it comes off, and a uniform bar rate spends exactly as long
+ * on those as on the hour of nothing before them. Short positions suffered worst: forty
+ * bars at a flat rate is over before it registers.
+ *
+ * So quiet stretches move, and the replay slows into every fill and slows hardest into a
+ * liquidation. The total is normalised afterwards, so this changes the SHAPE of the
+ * playback without making it longer.
+ */
+const FILL_BOOST = 4.5;
+const LIQ_BOOST = 9;
 
 const SPEEDS = [0.5, 1, 2, 4] as const;
 
@@ -91,7 +106,7 @@ export function Replay({ data }: { data: ReplayData }) {
     (f: { liquidatedUser: string | null }) => f.liquidatedUser === me,
     [me],
   );
-  const stepMs = Math.min(MAX_STEP_MS, Math.max(MIN_STEP_MS, RUN_MS / Math.max(bars, 1)));
+
 
   useEffect(() => setMuted(readMuted()), []);
 
@@ -189,6 +204,38 @@ export function Replay({ data }: { data: ReplayData }) {
     }
     return { markers, upto };
   }, [data.fills, data.candles, barOf, wasLiquidated]);
+
+  /**
+   * How long each bar is held, in ms. Slow motion, precomputed.
+   *
+   * Weights rise near any bar that carries a fill and rise further near a forced close,
+   * falling away over a spread that scales with the chart so it reads the same on forty
+   * bars as on twelve hundred. The weights are then scaled so the whole replay lands on a
+   * target duration, which means the emphasis costs nothing in total length.
+   */
+  const dwell = useMemo(() => {
+    const out = new Float32Array(Math.max(bars, 1)).fill(1);
+    if (bars === 0) return out;
+
+    const spread = Math.max(2, Math.round(bars / 45));
+    for (const [bar, at] of fillsAtBar) {
+      const boost = at.some(wasLiquidated) ? LIQ_BOOST : FILL_BOOST;
+      for (let d = -spread; d <= spread; d += 1) {
+        const i = bar + d;
+        if (i < 0 || i >= bars) continue;
+        // Cosine falloff: no seam where the emphasis starts and stops.
+        const fall = 0.5 * (1 + Math.cos((Math.PI * d) / (spread + 1)));
+        out[i] = Math.max(out[i]!, 1 + boost * fall);
+      }
+    }
+
+    let sum = 0;
+    for (let i = 0; i < bars; i += 1) sum += out[i]!;
+    const target = Math.min(MAX_RUN_MS, Math.max(MIN_RUN_MS, bars * MS_PER_BAR));
+    const scale = target / sum;
+    for (let i = 0; i < bars; i += 1) out[i] = out[i]! * scale;
+    return out;
+  }, [bars, fillsAtBar, wasLiquidated]);
 
   /* -------------------------------------------------------------- charts */
 
@@ -406,9 +453,15 @@ export function Replay({ data }: { data: ReplayData }) {
 
   /* ----------------------------------------------------------- the clock */
 
+  /** Mirrors `cursor` so the animation loop can read it without restarting each frame. */
+  const cursorRef = useRef(0);
+  useEffect(() => {
+    cursorRef.current = cursor;
+  }, [cursor]);
+
   useEffect(() => {
     if (!playing || bars === 0) return;
-    if (cursor >= bars - 1) {
+    if (cursorRef.current >= bars - 1) {
       setPlaying(false);
       return;
     }
@@ -416,25 +469,36 @@ export function Replay({ data }: { data: ReplayData }) {
     let raf = 0;
     let last = performance.now();
     let acc = 0;
-    const step = stepMs / speed;
 
     const frame = (now: number) => {
-      acc += now - last;
+      acc += (now - last) * speed;
       last = now;
-      if (acc >= step) {
-        const advance = Math.floor(acc / step);
-        acc -= advance * step;
-        setCursor((c) => Math.min(c + advance, bars - 1));
+
+      let c = cursorRef.current;
+      // A bar at a time, so a long frame crosses several without skipping their dwell.
+      while (c < bars - 1 && acc >= (dwell[c] ?? 16)) {
+        acc -= dwell[c] ?? 16;
+        c += 1;
+      }
+      if (c !== cursorRef.current) {
+        cursorRef.current = c;
+        setCursor(c);
+      }
+      if (c >= bars - 1) {
+        setPlaying(false);
+        return;
       }
       raf = requestAnimationFrame(frame);
     };
+
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [playing, speed, bars, cursor, stepMs]);
+  }, [playing, speed, bars, dwell]);
 
   const done = cursor >= bars - 1;
 
   const restart = useCallback(() => {
+    cursorRef.current = 0;
     setCursor(0);
     paintedRef.current = -1;
     lastTimeRef.current = -1;
@@ -564,7 +628,7 @@ export function Replay({ data }: { data: ReplayData }) {
                 >
                   {data.side}
                 </span>
-                {data.liquidated && (
+                {data.closedByLiquidation && (
                   <span className="rounded-[4px] bg-error/15 px-1.5 py-0.5 text-[9px] tracking-[0.08em] text-error">
                     LIQUIDATED
                   </span>
@@ -623,7 +687,7 @@ export function Replay({ data }: { data: ReplayData }) {
                 <div className="hl-fade pointer-events-none absolute inset-0 flex items-center justify-center bg-ground/70 backdrop-blur-[1px]">
                   <div className="flex flex-col items-center gap-1.5">
                     <span className="text-[10px] tracking-[0.22em] text-faint">
-                      {data.liquidated ? "LIQUIDATED" : "CLOSED"}
+                      {data.closedByLiquidation ? "LIQUIDATED" : "CLOSED"}
                     </span>
                     <span
                       className="text-[44px] leading-none"
