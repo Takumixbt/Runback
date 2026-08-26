@@ -1,27 +1,36 @@
 /**
- * Traders worth putting on the front page.
+ * Traders on the front page.
  *
- * Hand-curated on purpose. The version of this that read the tape and showed whoever
- * happened to be trading was worse than nothing: an address with no name attached and no
- * result attached answers no question anybody has. A name people recognise, next to a
- * number, is a reason to click.
+ * Hand-curated, and deliberately not inferred. Attaching a name to an address is a claim
+ * about a person, and there is no endpoint that makes it true: the addresses behind the
+ * well-known Hyperliquid names are reported second-hand and change hands. So nothing here
+ * is guessed. An entry exists because somebody put it here.
  *
- * Add an entry and it appears. Leave the list empty and the section does not render at
- * all, which is the correct state until there is something real to put in it.
- *
- * `note` is the one line under the name. Keep it factual and short: what they are known
- * for, not a description of the trade. The trade's own numbers are read live from the
- * chain and rendered beside it, so nothing here can go stale except the note.
+ * `avatar` is optional and takes any image URL. Leave it out and the card draws a
+ * deterministic gradient from the address instead, which is stable per wallet and needs no
+ * network. Everything else on the card, the best position, the worst one, the numbers, is
+ * read live from the chain, so nothing here can go stale except the name.
  */
 export interface Notable {
-  /** Their Hyperliquid address, lowercase. */
+  /** Hyperliquid address, lowercase. */
   address: string;
-  /** What to call them. A handle, a name, whatever they are known as. */
+  /** What to call them. */
   name: string;
   /** One short line. Optional. */
   note?: string;
+  /** Profile picture URL. Optional. */
+  avatar?: string;
 }
 
 export const NOTABLE: Notable[] = [
-  // { address: "0x…", name: "…", note: "…" },
+  {
+    address: "0x020ca66c30bec2c4fe3861a94e4db4a498a35872",
+    name: "Whale 020c",
+    note: "Size on HYPE and BTC",
+  },
+  {
+    address: "0x49e96e255ba418d08e66c35b588e2f2f3766e1d0",
+    name: "Desk 49e9",
+    note: "Makes markets across HIP-3 equities",
+  },
 ];

@@ -12,10 +12,10 @@ export function Ticker() {
 
   if (!board) {
     return (
-      <div className="h-[34px] shrink-0 overflow-hidden border-b border-border">
+      <div className="h-[46px] shrink-0 overflow-hidden border-b border-border">
         <div className="flex h-full items-center gap-7 px-4">
-          {Array.from({ length: 10 }).map((_, i) => (
-            <div key={i} className="hl-skeleton h-[14px] w-[104px] shrink-0" />
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div key={i} className="hl-skeleton h-[16px] w-[124px] shrink-0" />
           ))}
         </div>
       </div>
@@ -33,7 +33,7 @@ export function Ticker() {
 
   return (
     <div
-      className="group h-[34px] shrink-0 overflow-hidden border-b border-border"
+      className="group h-[46px] shrink-0 overflow-hidden border-b border-border"
       /* Fade both ends into the ground so items enter and leave rather than being cut. */
       style={{
         maskImage:
@@ -42,16 +42,16 @@ export function Ticker() {
           "linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent)",
       }}
     >
-      <div className="flex h-full w-max animate-[runback-marquee_70s_linear_infinite] items-center gap-6 group-hover:[animation-play-state:paused] motion-reduce:animate-none">
+      <div className="flex h-full w-max animate-[runback-marquee_78s_linear_infinite] items-center gap-8 group-hover:[animation-play-state:paused] motion-reduce:animate-none">
         {track.map((m, i) => {
           const lit = flash[m.coin];
           return (
             <div
               key={`${m.coin}-${i}`}
-              className="flex shrink-0 items-center gap-1.5 text-[11px] leading-none"
+              className="flex shrink-0 items-center gap-2 text-[12px] leading-none"
               aria-hidden={i >= board.marks.length}
             >
-              <CoinIcon coin={m.coin} label={m.label} size={14} />
+              <CoinIcon coin={m.coin} label={m.label} size={18} />
               <span className="text-tx">{m.label}</span>
               <span
                 className="tabular-nums transition-colors duration-300"

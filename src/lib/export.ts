@@ -157,22 +157,58 @@ export async function exportClip(
   }));
 
   const markerApi = createSeriesMarkers(series, []);
-  const allMarkers: SeriesMarker<Time>[] = data.fills.map((f) => {
+
+  const barOf = (ts: number): number => {
     let lo = 0;
     let hi = data.candles.length - 1;
     while (lo < hi) {
       const mid = (lo + hi + 1) >> 1;
-      if (data.candles[mid]!.t <= f.time) lo = mid;
+      if (data.candles[mid]!.t <= ts) lo = mid;
       else hi = mid - 1;
     }
+    return lo;
+  };
+
+  /**
+   * One marker per bar, matching the on-screen replay.
+   *
+   * A TWAP'd position carries hundreds of fills landing on a handful of bars. Drawn one
+   * per fill they stack into an unreadable smear, and every exported frame pays to filter
+   * the whole list. Merged by bar the picture is legible and the per-frame cost stops
+   * scaling with fill count.
+   */
+  const me = data.wallet.toLowerCase();
+  const wasLiquidated = (f: { liquidatedUser: string | null }) => f.liquidatedUser === me;
+
+  const cells = new Map<number, { buy: number; sell: number; liq: boolean; n: number }>();
+  for (const f of data.fills) {
+    const b = barOf(f.time);
+    const cell = cells.get(b) ?? { buy: 0, sell: 0, liq: false, n: 0 };
+    if (f.side === "B") cell.buy += f.sz * f.px;
+    else cell.sell += f.sz * f.px;
+    if (wasLiquidated(f)) cell.liq = true;
+    cell.n += 1;
+    cells.set(b, cell);
+  }
+  const markerBars = [...cells.keys()].sort((a, b) => a - b);
+  const allMarkers: SeriesMarker<Time>[] = markerBars.map((b) => {
+    const cell = cells.get(b)!;
+    const isBuy = cell.buy >= cell.sell;
     return {
-      time: (data.candles[lo]!.t / 1000) as UTCTimestamp,
-      position: f.side === "B" ? "belowBar" : "aboveBar",
-      color: f.liquidation ? AMBER : f.side === "B" ? MINT : SIGNAL,
-      shape: f.side === "B" ? "arrowUp" : "arrowDown",
-      text: f.liquidation ? "LIQ" : "",
+      time: (data.candles[b]!.t / 1000) as UTCTimestamp,
+      position: isBuy ? "belowBar" : "aboveBar",
+      color: cell.liq ? AMBER : isBuy ? MINT : SIGNAL,
+      shape: isBuy ? "arrowUp" : "arrowDown",
+      text: cell.liq ? "LIQ" : cell.n > 1 ? `${cell.n}` : "",
     } satisfies SeriesMarker<Time>;
   });
+
+  /** Markers at or before each bar, so a frame slices instead of scanning. */
+  const markersUpto = new Int32Array(data.candles.length);
+  for (let i = 0, k = 0; i < data.candles.length; i += 1) {
+    while (k < markerBars.length && markerBars[k]! <= i) k += 1;
+    markersUpto[i] = k;
+  }
 
   // The whole span is in view from frame zero, so the trade holds still and fills in.
   series.setData(candleData.slice(0, 1));
@@ -194,8 +230,7 @@ export async function exportClip(
       });
     }
     painted = index;
-    const cutoff = data.candles[index]!.t;
-    markerApi.setMarkers(allMarkers.filter((m) => (m.time as number) * 1000 <= cutoff));
+    markerApi.setMarkers(allMarkers.slice(0, markersUpto[index] ?? 0));
   };
 
   /* -------------------------------------------------------- frame source */
@@ -218,6 +253,7 @@ export async function exportClip(
     for (const f of data.fills) {
       const age = nowMs - f.time;
       if (age < 0 || age > hold) continue;
+      if (out.length >= 3) break;
       const alpha =
         age < arrive
           ? age / arrive
@@ -226,7 +262,7 @@ export async function exportClip(
             : 1;
       out.push({
         isBuy: f.side === "B",
-        liquidation: f.liquidation,
+        liquidation: wasLiquidated(f),
         dir: f.dir,
         usd: f.sz * f.px,
         px: f.px,

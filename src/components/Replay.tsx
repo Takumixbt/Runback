@@ -48,6 +48,15 @@ const SPEEDS = [0.5, 1, 2, 4] as const;
 /** Every $500 gained past the previous high sounds once. */
 const PROFIT_STEP = 500;
 
+/**
+ * Rows the fill table will render.
+ *
+ * A TWAP'd position can carry a thousand fills. Rendering all of them costs a thousand DOM
+ * nodes to show a list nobody scrolls to the bottom of, so the biggest are kept and the
+ * header says what was left out.
+ */
+const MAX_FILL_ROWS = 150;
+
 export function Replay({ data }: { data: ReplayData }) {
   const priceRef = useRef<HTMLDivElement>(null);
   const pnlRef = useRef<HTMLDivElement>(null);
@@ -66,6 +75,12 @@ export function Replay({ data }: { data: ReplayData }) {
   const [muted, setMuted] = useState(true);
 
   const bars = data.candles.length;
+  /** Lowercased once: every fill compares against it to attribute a forced close. */
+  const me = data.wallet.toLowerCase();
+  const wasLiquidated = useCallback(
+    (f: { liquidatedUser: string | null }) => f.liquidatedUser === me,
+    [me],
+  );
   const stepMs = Math.min(MAX_STEP_MS, Math.max(MIN_STEP_MS, RUN_MS / Math.max(bars, 1)));
 
   useEffect(() => setMuted(readMuted()), []);
@@ -117,17 +132,53 @@ export function Replay({ data }: { data: ReplayData }) {
     return map;
   }, [data.fills, barOf]);
 
-  const allMarkers = useMemo<SeriesMarker<Time>[]>(
-    () =>
-      data.fills.map((f) => ({
-        time: (data.candles[Math.max(0, barOf(f.time))]!.t / 1000) as UTCTimestamp,
-        position: f.side === "B" ? "belowBar" : "aboveBar",
-        color: f.liquidation ? ACCENT : f.side === "B" ? UP : DOWN,
-        shape: f.side === "B" ? "arrowUp" : "arrowDown",
-        text: f.liquidation ? "LIQ" : "",
-      })),
-    [data.fills, data.candles, barOf],
-  );
+  /**
+   * One marker per BAR, not one per fill, and a running count so a frame can slice.
+   *
+   * Both halves of this are performance fixes for the same case: a position built out of a
+   * TWAP or a swept market order. MEASURED on a HIP-3 market maker, one position carried
+   * 911 fills. That meant 911 arrows stacked on a few hundred bars, which is unreadable,
+   * and `allMarkers.filter(...)` running over all 911 on every animation frame, which is
+   * what made the replay crawl.
+   *
+   * Merging by bar fixes the picture: twenty slices at the same minute were one decision
+   * and should be one arrow, sized by the total. `upto` then turns the per-frame filter
+   * into a slice of a pre-sorted array, so the cost stops scaling with fill count.
+   */
+  const { markers: allMarkers, upto: markersUpto } = useMemo(() => {
+    const byBar = new Map<number, { buy: number; sell: number; liq: boolean; n: number }>();
+    for (const f of data.fills) {
+      const b = Math.max(0, barOf(f.time));
+      const cell = byBar.get(b) ?? { buy: 0, sell: 0, liq: false, n: 0 };
+      if (f.side === "B") cell.buy += f.sz * f.px;
+      else cell.sell += f.sz * f.px;
+      if (wasLiquidated(f)) cell.liq = true;
+      cell.n += 1;
+      byBar.set(b, cell);
+    }
+
+    const bars = [...byBar.keys()].sort((a, b) => a - b);
+    const markers: SeriesMarker<Time>[] = bars.map((b) => {
+      const cell = byBar.get(b)!;
+      const isBuy = cell.buy >= cell.sell;
+      return {
+        time: (data.candles[b]!.t / 1000) as UTCTimestamp,
+        position: isBuy ? "belowBar" : "aboveBar",
+        color: cell.liq ? ACCENT : isBuy ? UP : DOWN,
+        shape: isBuy ? "arrowUp" : "arrowDown",
+        text: cell.liq ? "LIQ" : cell.n > 1 ? `${cell.n}` : "",
+      };
+    });
+
+    /** How many markers exist at or before each bar, so a frame is a slice not a scan. */
+    const upto = new Int32Array(data.candles.length);
+    let k = 0;
+    for (let i = 0; i < data.candles.length; i += 1) {
+      while (k < bars.length && bars[k]! <= i) k += 1;
+      upto[i] = k;
+    }
+    return { markers, upto };
+  }, [data.fills, data.candles, barOf, wasLiquidated]);
 
   /* -------------------------------------------------------------- charts */
 
@@ -267,12 +318,9 @@ export function Replay({ data }: { data: ReplayData }) {
     }
     paintedRef.current = upto;
 
-    const cutoff = data.candles[upto]!.t;
-    markersRef.current?.setMarkers(
-      allMarkers.filter((m) => (m.time as number) * 1000 <= cutoff),
-    );
+    markersRef.current?.setMarkers(allMarkers.slice(0, markersUpto[upto] ?? 0));
     pnlSeriesRef.current?.setData(pnlData.slice(0, upto + 1));
-  }, [cursor, bars, candleData, pnlData, allMarkers, data.candles]);
+  }, [cursor, bars, candleData, pnlData, allMarkers, markersUpto]);
 
   /* --------------------------------------------------------------- sound */
 
@@ -288,7 +336,7 @@ export function Replay({ data }: { data: ReplayData }) {
 
     for (let b = soundedRef.current + 1; b <= upto; b += 1) {
       for (const f of fillsAtBar.get(b) ?? []) {
-        play(f.liquidation ? "liquidation" : f.side === "B" ? "buy" : "sell", muted);
+        play(wasLiquidated(f) ? "liquidation" : f.side === "B" ? "buy" : "sell", muted);
       }
     }
     soundedRef.current = upto;
@@ -301,7 +349,7 @@ export function Replay({ data }: { data: ReplayData }) {
     }
 
     if (upto === bars - 1) play("settle", muted);
-  }, [cursor, bars, fillsAtBar, muted, data.points]);
+  }, [cursor, bars, fillsAtBar, muted, data.points, wasLiquidated]);
 
   /* ----------------------------------------------------------- the clock */
 
@@ -387,6 +435,14 @@ export function Replay({ data }: { data: ReplayData }) {
   const held = duration(data.candles[bars - 1]!.t - data.candles[0]!.t);
   const sideTone = data.side === "LONG" ? UP : data.side === "SHORT" ? DOWN : ACCENT;
 
+  const shownFills = useMemo(() => {
+    if (data.fills.length <= MAX_FILL_ROWS) return data.fills;
+    return [...data.fills]
+      .sort((a, b) => b.sz * b.px - a.sz * a.px)
+      .slice(0, MAX_FILL_ROWS)
+      .sort((a, b) => a.time - b.time);
+  }, [data.fills]);
+
   const recent = useMemo(() => {
     const out: {
       key: string;
@@ -396,20 +452,32 @@ export function Replay({ data }: { data: ReplayData }) {
       usd: number;
       px: number;
     }[] = [];
-    for (let b = Math.max(0, cursor - Math.ceil(bars / 24)); b <= cursor; b += 1) {
-      for (const f of fillsAtBar.get(b) ?? []) {
+    /**
+     * Bounded to a short trailing window and stopped as soon as it has enough.
+     *
+     * Walking back a twenty-fourth of the chart and collecting every fill in it meant a
+     * bar holding four hundred TWAP slices built a four-hundred-entry array on every
+     * frame, to then throw all but the last two away.
+     */
+    const from = Math.max(0, cursor - Math.min(24, Math.ceil(bars / 24)));
+    for (let b = cursor; b >= from && out.length < 2; b -= 1) {
+      const at = fillsAtBar.get(b);
+      if (!at) continue;
+      for (let i = at.length - 1; i >= 0 && out.length < 2; i -= 1) {
+        const f = at[i]!;
         out.push({
           key: String(f.tid),
           isBuy: f.side === "B",
-          liq: f.liquidation,
+          liq: wasLiquidated(f),
           dir: f.dir,
           usd: f.sz * f.px,
           px: f.px,
         });
       }
     }
-    return out.slice(-2);
-  }, [cursor, bars, fillsAtBar]);
+    out.reverse();
+    return out;
+  }, [cursor, bars, fillsAtBar, wasLiquidated]);
 
   return (
     <div className="flex flex-col gap-3">
@@ -516,16 +584,29 @@ export function Replay({ data }: { data: ReplayData }) {
                 {done ? "Run it back" : playing ? "Pause" : "Play"}
               </button>
 
-              <div className="flex items-center gap-0.5 rounded-[8px] border border-border p-0.5">
+              {/*
+                A segmented control, sized as one object.
+                Four independently-padded pills gave four different widths, because "0.5x"
+                is three glyphs and "1x" is two, so the group read as broken alignment
+                rather than as a control. Equal columns and a single track fix it.
+              */}
+              <div
+                role="group"
+                aria-label="Playback speed"
+                className="grid h-[28px] grid-cols-4 items-stretch overflow-hidden rounded-[8px] border border-border"
+              >
                 {SPEEDS.map((s) => (
                   <button
                     key={s}
                     onClick={() => setSpeed(s)}
-                    className={`rounded-[6px] px-2 py-0.5 text-[11px] transition-colors duration-[120ms] ${
-                      speed === s ? "bg-inset text-tx" : "text-faint hover:text-muted"
+                    aria-pressed={speed === s}
+                    className={`w-[38px] text-[11px] leading-none transition-colors duration-[120ms] ${
+                      speed === s
+                        ? "bg-inset text-tx"
+                        : "text-faint hover:bg-inset/40 hover:text-muted"
                     }`}
                   >
-                    {s}×
+                    {s}&times;
                   </button>
                 ))}
               </div>
@@ -603,18 +684,28 @@ export function Replay({ data }: { data: ReplayData }) {
       </div>
 
       {/* ------------------------------------------------------------ fills */}
-      <Panel label="FILLS" aside={<span className="text-faint">{data.fills.length}</span>} flush>
+      <Panel
+        label="FILLS"
+        aside={
+          <span className="text-faint">
+            {data.fills.length > MAX_FILL_ROWS
+              ? `${MAX_FILL_ROWS} of ${data.fills.length}, largest first`
+              : data.fills.length}
+          </span>
+        }
+        flush
+      >
         <div className="scrollers max-h-[260px] overflow-auto">
           <table className="w-full min-w-[520px] border-collapse text-[11px]">
             <tbody>
-              {data.fills.map((f) => (
+              {shownFills.map((f) => (
                 <tr key={f.tid} className="border-b border-divider last:border-b-0">
                   <td className="px-3 py-2 text-faint">{clock(f.time)}</td>
                   <td
                     className="px-3 py-2"
-                    style={{ color: f.liquidation ? ACCENT : f.side === "B" ? UP : DOWN }}
+                    style={{ color: wasLiquidated(f) ? ACCENT : f.side === "B" ? UP : DOWN }}
                   >
-                    {f.liquidation ? "LIQ " : ""}
+                    {wasLiquidated(f) ? "LIQ " : ""}
                     {f.dir}
                   </td>
                   <td className="px-3 py-2 text-right text-muted">{size(f.sz)}</td>

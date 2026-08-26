@@ -84,7 +84,7 @@ export function WalletBrowser({ initial }: { initial?: string }) {
       let raw = await read(SPAN_DAYS);
       if (raw.length === 0 && !ctl.signal.aborted) raw = await read(WIDER_DAYS);
       if (ctl.signal.aborted) return;
-      setEps(segment(raw));
+      setEps(segment(raw, who));
       setPhase({ k: "ready" });
     } catch (err) {
       if (ctl.signal.aborted) return;

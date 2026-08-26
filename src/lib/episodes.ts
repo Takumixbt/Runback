@@ -21,6 +21,13 @@ export interface Episode {
   /** Still open at the time of the query. There is no exit and no final number. */
   open: boolean;
   /**
+   * Ended on a quiet stretch rather than on the position closing.
+   *
+   * The size carried on into the next session, so realised PnL here is exact but the
+   * position was not actually flat at this point.
+   */
+  truncatedEnd: boolean;
+  /**
    * The window began mid-position, so the opening trades are not in view.
    *
    * Detected from the first fill's `startPosition` rather than inferred. A replay of
@@ -38,7 +45,7 @@ export interface Episode {
   fees: number;
   /** Realised minus the fees we could account for. */
   net: number;
-  /** A forced close happened inside this episode. The money shot. */
+  /** This wallet was forcibly closed inside this episode. The money shot. */
   liquidated: boolean;
   /** The position went from long straight to short or back without passing through flat. */
   flipped: boolean;
@@ -50,6 +57,23 @@ export interface Episode {
 const FLAT = 1e-9;
 
 /**
+ * A quiet stretch long enough to end a position even though the size never reached zero.
+ *
+ * Flat-to-flat is the right unit for someone who takes a trade and closes it. It produces
+ * NOTHING for anyone who is continuously in the market. MEASURED on a HIP-3 equities market
+ * maker: 10,740 fills across 43 markets, 911 on NVDA alone, and every single coin still
+ * holding size at both ends of the window, so the whole wallet segmented into 43 open
+ * positions and zero closed ones. The page for it was empty.
+ *
+ * Splitting on idle time gives that wallet sessions instead: a run of activity, then six
+ * hours of nothing, then the next run. Realised PnL inside a session is still exact,
+ * because it is the sum of the exchange's own `closedPnl` over those fills. What is not
+ * exact is the position at the edges, which is what `truncatedStart` and `truncatedEnd`
+ * are for.
+ */
+const MAX_IDLE_MS = 6 * 3_600_000;
+
+/**
  * Split one wallet's fills into episodes, best first.
  *
  * A flip (`dir` containing ">") crosses through zero in a single fill and is deliberately
@@ -57,7 +81,8 @@ const FLAT = 1e-9;
  * clip, and the clip is the product: "he was long, he flipped, it kept going" is one story.
  * The episode is marked `flipped` so the UI can say so.
  */
-export function episodes(all: Fill[]): Episode[] {
+export function episodes(all: Fill[], subject?: string): Episode[] {
+  const me = subject?.toLowerCase();
   const byCoin = new Map<string, Fill[]>();
   for (const f of all) {
     const list = byCoin.get(f.coin);
@@ -83,11 +108,28 @@ export function episodes(all: Fill[]): Episode[] {
     let cur: Episode | null = null;
     let entryQty = 0;
     let entryCost = 0;
+    let lastAt = 0;
 
     for (const f of list) {
+      /**
+       * Close an open run before booking a fill that arrives after a long silence.
+       *
+       * Done before the position is updated, so the session ends where the activity
+       * actually stopped rather than where it resumed.
+       */
+      if (cur && lastAt > 0 && f.time - lastAt > MAX_IDLE_MS) {
+        cur.truncatedEnd = true;
+        cur.avgEntry = entryQty > 0 ? entryCost / entryQty : cur.fills[0]!.px;
+        cur.net = cur.realized - cur.fees;
+        out.push(cur);
+        cur = null;
+        firstOfCoin = false;
+      }
+
       const signed = f.side === "B" ? f.sz : -f.sz;
       const before = pos;
       pos += signed;
+      lastAt = f.time;
 
       if (!cur) {
         cur = {
@@ -97,7 +139,8 @@ export function episodes(all: Fill[]): Episode[] {
           start: f.time,
           end: f.time,
           open: false,
-          truncatedStart: firstOfCoin,
+          truncatedEnd: false,
+          truncatedStart: firstOfCoin || Math.abs(before) > FLAT,
           fills: [],
           peakSize: 0,
           peakNotional: 0,
@@ -116,7 +159,15 @@ export function episodes(all: Fill[]): Episode[] {
       cur.end = f.time;
       cur.realized += f.closedPnl;
       if (f.feeToken === "USDC") cur.fees += f.fee;
-      if (f.liquidation) cur.liquidated = true;
+      /**
+       * Only when the SUBJECT was the one liquidated.
+       *
+       * Both sides of a forced close carry the liquidation object, so without this check
+       * the wallet that profitably absorbed somebody else's blow-up is labelled as having
+       * been blown up itself. With no subject given, nothing is flagged, which is the safe
+       * default: a wrong badge is worse than a missing one.
+       */
+      if (f.liquidatedUser && me && f.liquidatedUser === me) cur.liquidated = true;
       if (f.dir.includes(">")) {
         cur.flipped = true;
         cur.side = "FLIP";
@@ -216,18 +267,30 @@ export interface Window {
  * half days and 5m bars make the whole trade one candle.
  */
 export function pickWindow(start: number, end: number, now = Date.now()): Window | null {
-  const pad = (end - start) * PAD + 60_000;
-  const from = Math.floor(start - pad);
-  const to = Math.ceil(end + pad);
-  const span = (to - from) / 1000;
+  const span = end - start;
 
   for (const { name, sec } of INTERVALS) {
+    const step = sec * 1000;
+
+    /**
+     * Pad to whichever is larger: a fraction of the trade, or enough bars to be a chart.
+     *
+     * The fraction alone is why so many rows used to read "no bars left". A three-minute
+     * trade padded by 15% is a three-and-a-half-minute window, which is four bars at 1m and
+     * one at 5m, so every interval failed the minimum and the row was refused outright.
+     * Widening instead shows the trade IN CONTEXT: the same three minutes, with an hour of
+     * price either side of it. That is a better chart than the tight one would have been.
+     */
+    const wanted = MIN_BARS * step;
+    const pad = Math.max(span * PAD + step, (wanted - span) / 2);
+    const from = Math.floor(start - pad);
+    const to = Math.ceil(end + pad);
+
     // The oldest timestamp this interval can still serve.
-    const reach = now - MAX_CANDLES * sec * 1000;
-    if (from < reach) continue;
-    const bars = Math.ceil(span / sec);
+    if (from < now - MAX_CANDLES * step) continue;
+
+    const bars = Math.ceil((to - from) / step);
     if (bars > MAX_BARS) continue;
-    if (bars < MIN_BARS) continue;
     return { interval: name, sec, from, to, bars };
   }
   return null;
@@ -235,17 +298,12 @@ export function pickWindow(start: number, end: number, now = Date.now()): Window
 
 /** Why a window could not be found, in words a person can act on. */
 export function whyNoWindow(start: number, end: number, now = Date.now()): string {
-  const ageDays = (now - start) / 86_400_000;
-  const mins = (end - start) / 60_000;
-  const finest = INTERVALS.find(({ sec }) => start >= now - MAX_CANDLES * sec * 1000);
-  if (!finest) return "older than any interval Hyperliquid still serves";
-  const bars = Math.ceil((mins * 60) / finest.sec);
-  if (bars < MIN_BARS) {
-    return `${mins < 60 ? `${Math.round(mins)}m` : `${(mins / 60).toFixed(1)}h`} long and ${Math.round(
-      ageDays,
-    )} days old, so the finest bars still available (${finest.name}) give only ${bars}`;
+  const days = Math.round((now - start) / 86_400_000);
+  const reachable = INTERVALS.find(({ sec }) => start >= now - MAX_CANDLES * sec * 1000);
+  if (!reachable) {
+    return `opened ${days} days ago, which is past every interval Hyperliquid still serves`;
   }
-  return "too long to draw at any available interval";
+  return `spans too long to draw inside ${MAX_BARS} bars at any available interval`;
 }
 
 /* ------------------------------------------------------------ the replay */

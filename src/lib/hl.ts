@@ -72,7 +72,15 @@ export interface Fill {
   hash: string;
   tid: number;
   twapId: number | null;
-  liquidation: boolean;
+  /**
+   * The address that got liquidated, when this fill was part of a forced close.
+   *
+   * Not a boolean, and that matters. A liquidation produces TWO fills sharing a tid: the
+   * liquidated user's and the counterparty's, and BOTH carry this object. Treating its
+   * presence as "this wallet was liquidated" marks whoever took the other side as blown
+   * up too, which is how a wallet's single best position ended up wearing a LIQ badge.
+   */
+  liquidatedUser: string | null;
 }
 
 const parseFill = (f: RawFill): Fill => ({
@@ -90,7 +98,7 @@ const parseFill = (f: RawFill): Fill => ({
   hash: f.hash,
   tid: f.tid,
   twapId: f.twapId ?? null,
-  liquidation: "liquidation" in f,
+  liquidatedUser: f.liquidation?.liquidatedUser?.toLowerCase() ?? null,
 });
 
 /** One response can hold this many; more than this means there is another page. */

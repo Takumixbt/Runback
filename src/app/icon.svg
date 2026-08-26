@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <rect width="32" height="32" rx="7" fill="#0f1a1e"/>
+  <!-- A rewind chevron pair over a rising close: run it back, on a chart. -->
+  <path d="M15.5 10.5 L9 16 l6.5 5.5 z" fill="#97fce4"/>
+  <path d="M23.5 10.5 L17 16 l6.5 5.5 z" fill="#50d2c1"/>
+</svg>
