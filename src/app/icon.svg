@@ -1,18 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <!--
-    Hyperliquid's own mark is an organic mint form with no straight edges and no hard
-    corners, so a geometric glyph reads as belonging to a different product however good
-    the colour is. This borrows the language and says something else with it: one mint
-    stroke that loops back on itself, round-capped, with the head cut on the same soft
-    curve. A replay, in their shapes.
-  -->
   <rect width="32" height="32" rx="9" fill="#0f1a1e"/>
   <path
-    d="M22.6 20.4a8.2 8.2 0 1 1 .9-7.4"
-    fill="none"
-    stroke="#97fce4"
-    stroke-width="3.6"
-    stroke-linecap="round"
-  />
-  <path d="M24.9 6.9c.6-.3 1.3.2 1.2.9l-.5 5.2c0 .7-.8 1-1.4.6l-4.2-3.1c-.5-.4-.4-1.2.2-1.5z" fill="#97fce4"/>
+    d="M16,16 C16,12.3 13.7,10.5 11,10.5 C7.6,10.5 5.6,13 5.6,16 C5.6,19 7.6,21.5 11,21.5 C13.7,21.5 16,19.7 16,16 C16,12.3 18.3,10.5 21,10.5 C24.4,10.5 26.4,13 26.4,16 C26.4,19 24.4,21.5 21,21.5 C18.3,21.5 16,19.7 16,16 Z"
+    fill="none" stroke="#97fce4" stroke-width="3.1" stroke-linecap="round"/>
 </svg>

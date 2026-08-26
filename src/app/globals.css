@@ -149,6 +149,17 @@ summary:focus-visible {
   to { transform: translateX(-50%); }
 }
 
+/**
+ * The mark's bright segment, running the loop forever.
+ *
+ * Negative offset so it travels forward along the path, and one full pathLength per cycle
+ * so the loop point is where it started and there is no jump.
+ */
+@keyframes runback-trace {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -100; }
+}
+
 @keyframes hl-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }

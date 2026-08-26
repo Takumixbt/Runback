@@ -22,10 +22,6 @@ const DOWN = "#ed7088";
 export default function Home() {
   return (
     <main className="mx-auto flex w-full max-w-[1120px] flex-col gap-5 px-4 py-7">
-      <h1 className="text-[22px] leading-none tracking-[-0.01em] text-title">
-        Run it back.
-      </h1>
-
       <WalletBrowser />
 
       <Steps />
@@ -95,7 +91,7 @@ async function Traders() {
  */
 function Steps() {
   const steps = [
-    "Paste any Hyperliquid wallet",
+    "Paste a wallet address",
     "Pick a position from its list",
     "Watch it play out, export the clip",
   ];
