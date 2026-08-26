@@ -150,14 +150,22 @@ summary:focus-visible {
 }
 
 /**
- * The mark's bright segment, running the loop forever.
+ * The mark turning about its vertical axis.
  *
- * Negative offset so it travels forward along the path, and one full pathLength per cycle
- * so the loop point is where it started and there is no jump.
+ * A constant backward tilt is held through the whole turn, so the ring is always read at
+ * an angle and never flattens to a line. Combined with the shaded underside that keeps an
+ * edge visible at every point of the rotation, which is what makes it an object turning
+ * rather than a drawing being squashed.
  */
-@keyframes runback-trace {
+@keyframes runback-spin {
+  from { transform: rotateX(58deg) rotateY(0deg); }
+  to   { transform: rotateX(58deg) rotateY(360deg); }
+}
+
+/** Bands running the circumference, giving the surface something to move. */
+@keyframes runback-flow {
   from { stroke-dashoffset: 0; }
-  to { stroke-dashoffset: -100; }
+  to   { stroke-dashoffset: -25; }
 }
 
 @keyframes hl-pulse {

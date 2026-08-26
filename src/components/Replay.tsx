@@ -58,6 +58,15 @@ const MAX_RUN_MS = 24_000;
 const FILL_BOOST = 4.5;
 const LIQ_BOOST = 9;
 
+/**
+ * Bars kept in view while the replay runs, and the gap held open ahead of the last one.
+ *
+ * Wide enough to carry the shape of a move, tight enough that a candle is a candle rather
+ * than a hair. Anything shorter than this is shown whole and does not scroll.
+ */
+const WINDOW_BARS = 130;
+const RIGHT_PAD = 6;
+
 const SPEEDS = [0.5, 1, 2, 4] as const;
 
 /** Every $500 gained past the previous high sounds once. */
@@ -288,13 +297,6 @@ export function Replay({ data }: { data: ReplayData }) {
         timeVisible: true,
         secondsVisible: false,
         rightOffset: 0,
-        /**
-         * The window never follows the data.
-         *
-         * With this on, every appended bar nudged the visible range along, so the chart
-         * crept sideways for the whole replay instead of holding still and filling in.
-         */
-        shiftVisibleRangeOnNewBar: false,
         lockVisibleTimeRangeOnResize: true,
       },
       /**
@@ -370,6 +372,14 @@ export function Replay({ data }: { data: ReplayData }) {
     markersRef.current = createSeriesMarkers(series, []);
     paintedRef.current = -1;
 
+    // Short replays never scroll, so their whole span is framed once, here.
+    if (candleData.length > 0 && candleData.length <= WINDOW_BARS) {
+      chart.timeScale().setVisibleLogicalRange({
+        from: -RIGHT_PAD / 2,
+        to: candleData.length - 1 + RIGHT_PAD / 2,
+      });
+    }
+
     return () => {
       chart.remove();
       chartRef.current = null;
@@ -442,7 +452,8 @@ export function Replay({ data }: { data: ReplayData }) {
   const paintTo = useCallback(
     (index: number, frac: number) => {
       const series = seriesRef.current;
-      if (!series || bars === 0) return;
+      const chart = chartRef.current;
+      if (!series || !chart || bars === 0) return;
       const i = Math.min(Math.max(index, 0), bars - 1);
 
       if (i < paintedRef.current) {
@@ -470,6 +481,22 @@ export function Replay({ data }: { data: ReplayData }) {
         high: Math.min(bar.high, Math.max(bar.open, close) + (bar.high - Math.max(bar.open, bar.close)) * p),
         low: Math.max(bar.low, Math.min(bar.open, close) - (Math.min(bar.open, bar.close) - bar.low) * p),
       });
+
+      /**
+       * The window travels with the action, and does it smoothly.
+       *
+       * Pinning the whole span in view was the wrong answer to the zoom: it fixed the
+       * scale and killed the motion, so the replay stopped following its own chart. What
+       * a live chart does is scroll, and scrolling ONCE PER BAR is a visible jolt every
+       * step, so the range is set every frame and carries the fractional progress. The
+       * chart glides under the forming candle instead of hopping.
+       *
+       * A replay short enough to fit stays still, because there is nothing to follow.
+       */
+      if (bars > WINDOW_BARS) {
+        const to = i + frac + RIGHT_PAD;
+        chart.timeScale().setVisibleLogicalRange({ from: to - WINDOW_BARS, to });
+      }
 
       if (i !== paintedRef.current) {
         markersRef.current?.setMarkers(allMarkers.slice(0, markersUpto[i] ?? 0));
