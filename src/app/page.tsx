@@ -57,14 +57,14 @@ async function Traders() {
           >
             <Avatar address={t.address} name={t.name} src={t.avatar} size={32} />
             <span className="flex min-w-0 flex-col gap-1">
-              <span className="truncate text-[13px] leading-none text-title">{t.name}</span>
+              <span className="truncate text-read leading-none text-title">{t.name}</span>
               {t.handle && (
-                <span className="truncate text-[11px] leading-none text-faint">
+                <span className="truncate text-mini leading-none text-faint">
                   @{t.handle}
                 </span>
               )}
             </span>
-            <span className="ml-auto shrink-0 text-[11px] text-faint">{t.positions}</span>
+            <span className="ml-auto shrink-0 text-mini text-faint">{t.positions}</span>
           </Link>
 
           {/*
@@ -100,9 +100,9 @@ function Steps() {
       {steps.map((text, i) => (
         <li
           key={text}
-          className="flex flex-1 items-center gap-2.5 bg-ground px-3.5 py-2.5 text-[11px] text-muted"
+          className="flex flex-1 items-center gap-2.5 bg-ground px-3.5 py-2.5 text-mini text-muted"
         >
-          <span className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full border border-border text-[10px] text-faint">
+          <span className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full border border-border text-micro text-faint">
             {i + 1}
           </span>
           {text}
@@ -129,8 +129,8 @@ function Trade({
   if (!h) {
     return (
       <div className="flex flex-col gap-2 bg-ground px-3.5 py-2.5">
-        <span className="text-[9px] tracking-[0.12em] text-faint">{tag}</span>
-        <span className="text-[11px] text-faint">&ndash;</span>
+        <span className="text-micro tracking-[0.12em] text-faint">{tag}</span>
+        <span className="text-mini text-faint">&ndash;</span>
       </div>
     );
   }
@@ -142,26 +142,26 @@ function Trade({
       className="group/cell flex flex-col gap-2 bg-ground px-3.5 py-2.5 transition-colors duration-[120ms] hover:bg-inset/40"
     >
       <div className="flex items-center gap-1.5">
-        <span className="text-[9px] tracking-[0.12em] text-faint">{tag}</span>
+        <span className="text-micro tracking-[0.12em] text-faint">{tag}</span>
         {h.liquidated && (
-          <span className="text-[9px] tracking-[0.12em] text-error">LIQ</span>
+          <span className="text-micro tracking-[0.12em] text-error">LIQ</span>
         )}
       </div>
 
       <div className="flex items-baseline gap-1.5">
-        <span className="text-[17px] leading-none tabular-nums" style={{ color: tone }}>
+        <span className="text-lead leading-none tabular-nums" style={{ color: tone }}>
           {signedUsd(h.net)}
         </span>
-        {h.roe !== null && <span className="text-[10px] text-faint">{pct(h.roe)}</span>}
+        {h.roe !== null && <span className="text-micro text-faint">{pct(h.roe)}</span>}
       </div>
 
       <div className="flex items-center gap-1.5">
         <CoinIcon coin={h.coin} label={h.label} size={13} />
-        <span className="min-w-0 truncate text-[11px] text-muted">{h.label}</span>
-        <span className="shrink-0 text-[9px] tracking-[0.08em]" style={{ color: tone }}>
+        <span className="min-w-0 truncate text-mini text-muted">{h.label}</span>
+        <span className="shrink-0 text-micro tracking-[0.08em]" style={{ color: tone }}>
           {h.side}
         </span>
-        <span className="ml-auto shrink-0 text-[10px] text-faint opacity-0 transition-opacity duration-[120ms] group-hover/cell:opacity-100">
+        <span className="ml-auto shrink-0 text-micro text-faint opacity-0 transition-opacity duration-[120ms] group-hover/cell:opacity-100">
           Watch &rarr;
         </span>
       </div>

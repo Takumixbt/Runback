@@ -42,6 +42,33 @@
   --radius-hl-sm: 8px;
 
   --font-sans: Inter, system-ui, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", sans-serif;
+
+  /**
+   * A type scale, because there was not one.
+   *
+   * Eleven arbitrary sizes were in use across the app: 9, 10, 11, 12, 13, 14, 15, 16, 17,
+   * 22 and 46 pixels, each picked in the moment for the element in front of me. Nothing
+   * looks composed when every element negotiates its own size, and the eye reads the
+   * near-misses (14 next to 15, 16 next to 17) as sloppiness even when it cannot name why.
+   *
+   * Seven steps, each with a job:
+   *   micro   uppercase labels and badges, always with tracking
+   *   mini    secondary text, counts, captions
+   *   body    the default for interface text and table cells
+   *   read    inputs and anything set as prose
+   *   lead    names, tickers, panel titles
+   *   head    page titles and the market on a replay
+   *   figure  the PnL that moves
+   *   hero    the end card, once
+   */
+  --text-micro: 10px;
+  --text-mini: 11px;
+  --text-body: 12px;
+  --text-read: 13px;
+  --text-lead: 15px;
+  --text-head: 20px;
+  --text-figure: 30px;
+  --text-hero: 44px;
 }
 
 :root {

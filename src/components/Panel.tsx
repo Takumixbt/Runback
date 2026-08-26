@@ -29,9 +29,9 @@ export function Panel({
       {(label || aside) && (
         <header className="flex h-[34px] shrink-0 items-center justify-between gap-3 border-b border-border px-3">
           {label && (
-            <span className="text-[10px] tracking-[0.08em] text-faint">{label}</span>
+            <span className="text-micro tracking-[0.08em] text-faint">{label}</span>
           )}
-          {aside && <div className="flex items-center gap-2 text-[11px]">{aside}</div>}
+          {aside && <div className="flex items-center gap-2 text-mini">{aside}</div>}
         </header>
       )}
       <div className={`min-w-0 flex-1 ${flush ? "" : "p-3"} ${bodyClassName}`}>
@@ -57,11 +57,11 @@ export function Metric({
   const color = tone === undefined ? "#f6fefd" : tone >= 0 ? "#50d2c1" : "#ed7088";
   return (
     <div className="flex min-w-0 flex-col gap-1 px-3 py-2.5">
-      <span className="truncate text-[10px] tracking-[0.08em] text-faint">{label}</span>
-      <span className="truncate text-[14px] leading-none tabular-nums" style={{ color }}>
+      <span className="truncate text-micro tracking-[0.08em] text-faint">{label}</span>
+      <span className="truncate text-read leading-none tabular-nums" style={{ color }}>
         {value}
       </span>
-      {sub && <span className="truncate text-[10px] text-faint">{sub}</span>}
+      {sub && <span className="truncate text-micro text-faint">{sub}</span>}
     </div>
   );
 }
