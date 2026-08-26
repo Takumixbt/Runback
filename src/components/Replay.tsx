@@ -568,7 +568,8 @@ export function Replay({ data }: { data: ReplayData }) {
                       {signedUsd(data.net)}
                     </span>
                     <span className="text-[12px] text-muted">
-                      {pct(data.roe)} · fees {signedUsd(-data.fees)}
+                      {data.roe === null ? "" : `${pct(data.roe)} · `}fees{" "}
+                      {signedUsd(-data.fees)}
                     </span>
                   </div>
                 </div>
@@ -661,7 +662,11 @@ export function Replay({ data }: { data: ReplayData }) {
               <Row label="Realized" value={signedUsd(data.realized)} tone={data.realized} />
               <Row label="Fees" value={`−$${data.fees.toFixed(2)}`} />
               <Row label="Net" value={signedUsd(data.net)} tone={data.net} />
-              <Row label="Return" value={pct(data.roe)} tone={data.roe} />
+              <Row
+                label="Return"
+                value={data.roe === null ? "–" : pct(data.roe)}
+                tone={data.roe ?? undefined}
+              />
               <Row label="Entry" value={price(data.avgEntry)} />
               <Row label="Held" value={held} />
               <Row label="Fills" value={String(data.fills.length)} />

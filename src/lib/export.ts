@@ -311,7 +311,7 @@ export async function exportClip(
             net: data.net,
             realized: data.realized,
             fees: data.fees,
-            roe: data.roe,
+            roe: data.roe ?? 0,
             peak: data.peak,
             trough: data.trough,
           },

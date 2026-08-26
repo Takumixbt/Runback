@@ -19,7 +19,7 @@ import {
   type Episode,
   type Replay as ReplayData,
 } from "@/lib/episodes";
-import { duration, pct, signedUsd, usdCompact, when } from "@/lib/format";
+import { duration, pct, returnOf, signedUsd, usdCompact, when } from "@/lib/format";
 import { CoinIcon } from "./CoinIcon";
 import { Metric, Panel } from "./Panel";
 import { Replay } from "./Replay";
@@ -334,7 +334,7 @@ function EpisodeTable({
               const w = windows[i];
               const kind = kindOf(ep.coin, markets);
               const label = labelFor(ep.coin, markets);
-              const roe = ep.peakNotional > 0 ? ep.net / ep.peakNotional : 0;
+              const roe = returnOf(ep.net, ep.peakNotional);
               const tone = ep.side === "LONG" ? UP : ep.side === "SHORT" ? DOWN : FLIPPED;
               const dead = !w;
 
@@ -385,9 +385,9 @@ function EpisodeTable({
                   </td>
                   <td
                     className="px-3 py-2.5 text-right"
-                    style={{ color: ep.open ? FAINT : roe >= 0 ? UP : DOWN }}
+                    style={{ color: ep.open || roe === null ? FAINT : roe >= 0 ? UP : DOWN }}
                   >
-                    {ep.open ? "–" : pct(roe)}
+                    {ep.open || roe === null ? "–" : pct(roe)}
                   </td>
                   <td className="whitespace-nowrap px-3 py-2.5 text-right">
                     {w ? (

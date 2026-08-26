@@ -10,6 +10,7 @@
  */
 
 import type { Candle, Fill } from "./hl";
+import { returnOf } from "./format";
 
 export interface Episode {
   /** Stable across rebuilds: the coin and the opening fill's trade id. */
@@ -337,8 +338,8 @@ export interface Replay {
   /** Best and worst the running total ever got. The drawdown a PnL card hides. */
   peak: number;
   trough: number;
-  /** Return on the peak notional held. Not account ROI, which needs deposits netted out. */
-  roe: number;
+  /** Return on the peak notional held. Null when that denominator is unusable. */
+  roe: number | null;
   liquidated: boolean;
   open: boolean;
   truncatedStart: boolean;
@@ -422,7 +423,7 @@ export function buildReplay(
     net: ep.net,
     peak,
     trough,
-    roe: ep.peakNotional > 0 ? ep.net / ep.peakNotional : 0,
+    roe: returnOf(ep.net, ep.peakNotional),
     liquidated: ep.liquidated,
     open: ep.open,
     truncatedStart: ep.truncatedStart,

@@ -34,6 +34,28 @@ export function signedUsd(v: number): string {
   return `${sign}$${abs.toFixed(2)}`;
 }
 
+/**
+ * A return, or nothing, because some positions cannot have one.
+ *
+ * Return is net over the largest position held, and that denominator collapses on a
+ * position whose size never really grew: a spot leg opened and closed within rounding, a
+ * transfer booked as a fill. MEASURED, one produced "+10,474,240.3%" on the front page.
+ *
+ * A figure that absurd is not a big win, it is a missing denominator, and printing it
+ * costs more trust than leaving the cell empty. Returns are suppressed below a floor on
+ * the notional and above a ceiling on the result.
+ */
+const MIN_NOTIONAL_FOR_RETURN = 500;
+const MAX_SANE_RETURN = 100;
+
+export function returnOf(net: number, peakNotional: number): number | null {
+  if (!Number.isFinite(net) || !Number.isFinite(peakNotional)) return null;
+  if (peakNotional < MIN_NOTIONAL_FOR_RETURN) return null;
+  const r = net / peakNotional;
+  if (!Number.isFinite(r) || Math.abs(r) > MAX_SANE_RETURN) return null;
+  return r;
+}
+
 export function pct(v: number, digits = 1): string {
   const sign = v >= 0 ? "+" : "−";
   return `${sign}${(Math.abs(v) * 100).toFixed(digits)}%`;

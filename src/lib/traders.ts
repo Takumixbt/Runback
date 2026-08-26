@@ -1,6 +1,7 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
 import { fills, labelFor, markets, type Market } from "./hl";
+import { returnOf } from "./format";
 import { episodes, pickWindow, type Episode } from "./episodes";
 import { NOTABLE, type Notable } from "./notable";
 
@@ -17,16 +18,63 @@ import { NOTABLE, type Notable } from "./notable";
  * wallets. It is the only server-side read in the app.
  */
 
-const LOOKBACK_DAYS = 45;
+/**
+ * How far back to look for a highlight.
+ *
+ * Wide, and that is the point. MEASURED over 45 days, every famous name on the list came
+ * back with zero fills: AguilaTrades, Ansem, Pentoshi, the whales. They are not gone, they
+ * are just not trading this week, and their best position is the one people remember. Over
+ * 400 days the same list produces AguilaTrades down $6.3M on BTC and an ETH long worth
+ * $72M.
+ *
+ * Old does not mean undrawable. The 5,000-bar wall is per interval, and 4h bars reach back
+ * more than two years, so a position held for days is still replayable a year later. Only
+ * short old trades are lost, and `pickWindow` is what decides.
+ */
+const LOOKBACK_DAYS = 400;
 /** Enough to reach real size without walking a market maker's entire tape. */
-const MAX_PAGES = 4;
+const MAX_PAGES = 6;
+
+/**
+ * How many traders to read at once, and how long to wait between starts.
+ *
+ * The whole list fired in parallel is seven wallets times six pages from ONE server IP,
+ * and Hyperliquid limits by IP at 1,200 weight a minute. It tripped: four of the seven
+ * came back empty and `allSettled` swallowed it, so the page silently rendered three
+ * traders and looked like the data was missing rather than throttled.
+ *
+ * This is the one place in the app that cannot spread load across visitors, so it has to
+ * behave. Two at a time with a gap between starts keeps the whole refresh well inside the
+ * budget and costs a few seconds on a cache miss nobody is waiting on.
+ */
+const CONCURRENCY = 2;
+const STAGGER_MS = 350;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Run tasks a few at a time, in order, keeping every result. */
+async function pool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next;
+      next += 1;
+      out[i] = await fn(items[i]!);
+      await sleep(STAGGER_MS);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
 
 export interface Highlight {
   coin: string;
   label: string;
   side: Episode["side"];
   net: number;
-  roe: number;
+  /** Against the largest position held. Null when that denominator is unusable. */
+  roe: number | null;
   at: number;
   liquidated: boolean;
 }
@@ -45,7 +93,7 @@ function highlight(ep: Episode, known: Map<string, Market>): Highlight {
     label: labelFor(ep.coin, known),
     side: ep.side,
     net: ep.net,
-    roe: ep.peakNotional > 0 ? ep.net / ep.peakNotional : 0,
+    roe: returnOf(ep.net, ep.peakNotional),
     at: ep.end,
     liquidated: ep.liquidated,
   };
@@ -74,7 +122,14 @@ async function card(who: Notable, known: Map<string, Market>, now: number): Prom
       worst: worst.net < 0 ? highlight(worst, known) : null,
     };
   } catch {
-    return blank;
+    /**
+     * Re-thrown, not swallowed into a blank card.
+     *
+     * A blank is indistinguishable from "this wallet has no history", so caching one hides
+     * a rate limit for five minutes and the trader just disappears from the page. The
+     * caller drops the whole result instead, which means the next request retries.
+     */
+    throw new Error(`runback: could not read ${who.address}`);
   }
 }
 
@@ -90,14 +145,22 @@ export const traderCards = unstable_cache(
       known = new Map();
     }
 
-    const settled = await Promise.allSettled(NOTABLE.map((n) => card(n, known, now)));
-    return settled
-      .map((s, i) =>
-        s.status === "fulfilled"
-          ? s.value
-          : { ...NOTABLE[i]!, best: null, worst: null, positions: 0, net: 0 },
-      )
-      .sort((a, b) => (b.best?.net ?? 0) - (a.best?.net ?? 0));
+    const settled = await pool(NOTABLE, CONCURRENCY, (n) =>
+      card(n, known, now).catch(() => null),
+    );
+    const cards = settled.filter((c): c is TraderCard => c !== null);
+
+    /**
+     * A short read is not cached.
+     *
+     * Losing most of the list to throttling and then pinning that for five minutes is the
+     * failure this is guarding against. Throwing makes `unstable_cache` discard it and the
+     * next request tries again.
+     */
+    if (cards.length < Math.ceil(NOTABLE.length / 2)) {
+      throw new Error("runback: partial trader read");
+    }
+    return cards.sort((a, b) => (b.best?.net ?? 0) - (a.best?.net ?? 0));
   },
   ["runback:traders"],
   { revalidate: 300 },
