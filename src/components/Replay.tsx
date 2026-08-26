@@ -80,16 +80,6 @@ export function Replay({ data }: { data: ReplayData }) {
   const pnlSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const paintedRef = useRef(-1);
-  /**
-   * The timestamp actually written into the series, which `paintedRef` only claims.
-   *
-   * `series.update()` throws "Cannot update oldest data" if handed a bar at or before the
-   * last one the series holds, and an index is not enough to rule that out: the two refs
-   * belong to a chart that any dependency change can replace underneath them, so the index
-   * can say "one step forward" while the series it is talking to was rebuilt and is
-   * somewhere else entirely. Comparing the time is the only check that cannot go stale.
-   */
-  const lastTimeRef = useRef<number>(-1);
   /** Highest bar the soundtrack has already reacted to, so scrubbing back stays silent. */
   const soundedRef = useRef(-1);
   const milestoneRef = useRef(0);
@@ -239,6 +229,35 @@ export function Replay({ data }: { data: ReplayData }) {
 
   /* -------------------------------------------------------------- charts */
 
+  /** Low and high across the entire replay, entry line included. */
+  const fixedRange = useMemo(() => {
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const c of data.candles) {
+      if (c.l < lo) lo = c.l;
+      if (c.h > hi) hi = c.h;
+    }
+    if (data.avgEntry > 0) {
+      lo = Math.min(lo, data.avgEntry);
+      hi = Math.max(hi, data.avgEntry);
+    }
+    if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi <= lo) {
+      return { minValue: 0, maxValue: 1 };
+    }
+    return { minValue: lo, maxValue: hi };
+  }, [data.candles, data.avgEntry]);
+
+  const pnlRange = useMemo(() => {
+    let lo = 0;
+    let hi = 0;
+    for (const p of data.points) {
+      if (p.total < lo) lo = p.total;
+      if (p.total > hi) hi = p.total;
+    }
+    if (hi <= lo) return { minValue: -1, maxValue: 1 };
+    return { minValue: lo, maxValue: hi };
+  }, [data.points]);
+
   useEffect(() => {
     const el = priceRef.current;
     if (!el) return;
@@ -268,7 +287,15 @@ export function Replay({ data }: { data: ReplayData }) {
         borderColor: BORDER,
         timeVisible: true,
         secondsVisible: false,
-        rightOffset: 2,
+        rightOffset: 0,
+        /**
+         * The window never follows the data.
+         *
+         * With this on, every appended bar nudged the visible range along, so the chart
+         * crept sideways for the whole replay instead of holding still and filling in.
+         */
+        shiftVisibleRangeOnNewBar: false,
+        lockVisibleTimeRangeOnResize: true,
       },
       /**
        * A crosshair that reads values, which is the whole reason theirs has one. It was
@@ -306,6 +333,20 @@ export function Replay({ data }: { data: ReplayData }) {
       priceLineWidth: 1,
       priceLineStyle: 2,
       lastValueVisible: true,
+      /**
+       * A price range fixed to the WHOLE replay, not to what is currently drawn.
+       *
+       * This is the zoom bug. The series only ever holds the bars revealed so far, and by
+       * default the scale fits itself to exactly those, so rewinding to bar five fitted
+       * five bars to the full height of the panel and the chart appeared to zoom in. Worse,
+       * it meant the vertical scale moved continuously during playback, so a candle's
+       * height told you nothing.
+       *
+       * Pinning the range makes the axis mean the same thing at every moment of the
+       * replay, which is the only way the price action reads as movement rather than as
+       * the chart rescaling underneath it.
+       */
+      autoscaleInfoProvider: () => ({ priceRange: fixedRange }),
     });
 
     /**
@@ -328,7 +369,6 @@ export function Replay({ data }: { data: ReplayData }) {
     seriesRef.current = series;
     markersRef.current = createSeriesMarkers(series, []);
     paintedRef.current = -1;
-    lastTimeRef.current = -1;
 
     return () => {
       chart.remove();
@@ -367,6 +407,8 @@ export function Replay({ data }: { data: ReplayData }) {
       lineWidth: 2,
       priceLineVisible: false,
       lastValueVisible: false,
+      // Same reason as the candles: a curve that rescales as it draws shows no shape.
+      autoscaleInfoProvider: () => ({ priceRange: pnlRange }),
     });
 
     // Zero is the only meaningful reference on a PnL curve.
@@ -388,39 +430,66 @@ export function Replay({ data }: { data: ReplayData }) {
 
   /* ------------------------------------------------------------ painting */
 
-  useEffect(() => {
-    const series = seriesRef.current;
-    const chart = chartRef.current;
-    if (!series || !chart || bars === 0) return;
+  /**
+   * Draw the chart at bar `index`, `frac` of the way through it.
+   *
+   * Imperative, and called from the animation loop every frame rather than from an effect
+   * on every cursor change, because the interesting part happens BETWEEN bars. A bar that
+   * simply appears at full size is a slideshow; a bar that opens flat and grows to its
+   * close while its wick extends is a market moving, which is the whole thing people are
+   * here to watch.
+   */
+  const paintTo = useCallback(
+    (index: number, frac: number) => {
+      const series = seriesRef.current;
+      if (!series || bars === 0) return;
+      const i = Math.min(Math.max(index, 0), bars - 1);
 
-    const upto = Math.min(cursor, bars - 1);
+      if (i < paintedRef.current) {
+        // Rewound. Rebuild, which is the only way to remove bars from a series.
+        series.setData(candleData.slice(0, i + 1));
+      } else {
+        // Fill in whole bars for anything skipped, so nothing is left half-drawn.
+        for (let k = paintedRef.current + 1; k < i; k += 1) series.update(candleData[k]!);
+      }
 
-    /**
-     * Append when the cursor moved forward by one, reset otherwise.
-     *
-     * `setData` every frame re-fits the whole series and made the price scale twitch on
-     * every bar. Appending leaves it alone, which is what makes playback look like a chart
-     * advancing rather than one being redrawn.
-     */
-    const bar = candleData[upto]!;
-    const t = bar.time as number;
-
-    if (upto === paintedRef.current + 1 && t > lastTimeRef.current) {
-      series.update(bar);
-    } else if (upto !== paintedRef.current || t <= lastTimeRef.current) {
-      series.setData(candleData.slice(0, upto + 1));
-      // The whole span stays in view, so the trade holds still and fills in.
-      chart.timeScale().setVisibleRange({
-        from: candleData[0]!.time,
-        to: candleData[candleData.length - 1]!.time,
+      /**
+       * The bar being lived through, interpolated.
+       *
+       * Open is fixed; close walks from the open toward the real close, and the wick only
+       * extends as far as the body has travelled. Repeatedly updating the SAME timestamp
+       * is exactly what `update` is for, so this costs one call a frame.
+       */
+      const bar = candleData[i]!;
+      const p = Math.min(Math.max(frac, 0), 1);
+      const close = bar.open + (bar.close - bar.open) * p;
+      series.update({
+        time: bar.time,
+        open: bar.open,
+        close,
+        high: Math.min(bar.high, Math.max(bar.open, close) + (bar.high - Math.max(bar.open, bar.close)) * p),
+        low: Math.max(bar.low, Math.min(bar.open, close) - (Math.min(bar.open, bar.close) - bar.low) * p),
       });
-    }
-    paintedRef.current = upto;
-    lastTimeRef.current = t;
 
-    markersRef.current?.setMarkers(allMarkers.slice(0, markersUpto[upto] ?? 0));
-    pnlSeriesRef.current?.setData(pnlData.slice(0, upto + 1));
-  }, [cursor, bars, candleData, pnlData, allMarkers, markersUpto]);
+      if (i !== paintedRef.current) {
+        markersRef.current?.setMarkers(allMarkers.slice(0, markersUpto[i] ?? 0));
+        pnlSeriesRef.current?.setData(pnlData.slice(0, i + 1));
+      }
+      paintedRef.current = i;
+    },
+    [bars, candleData, pnlData, allMarkers, markersUpto],
+  );
+
+  /**
+   * Redraw on anything that is not the animation loop: a scrub, a restart, a fresh chart.
+   *
+   * `paintedRef` is reset to -1 when the chart is rebuilt, and reading it here would make
+   * this effect depend on a ref it cannot observe, so it simply paints the current cursor
+   * whole. The loop takes over the moment playback resumes.
+   */
+  useEffect(() => {
+    paintTo(cursor, 1);
+  }, [cursor, paintTo]);
 
   /* --------------------------------------------------------------- sound */
 
@@ -468,6 +537,7 @@ export function Replay({ data }: { data: ReplayData }) {
 
     let raf = 0;
     let last = performance.now();
+    /** Time spent inside the CURRENT bar, which is what makes it form. */
     let acc = 0;
 
     const frame = (now: number) => {
@@ -480,6 +550,10 @@ export function Replay({ data }: { data: ReplayData }) {
         acc -= dwell[c] ?? 16;
         c += 1;
       }
+
+      const held = dwell[c] ?? 16;
+      paintTo(c, c >= bars - 1 ? 1 : acc / held);
+
       if (c !== cursorRef.current) {
         cursorRef.current = c;
         setCursor(c);
@@ -493,7 +567,7 @@ export function Replay({ data }: { data: ReplayData }) {
 
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [playing, speed, bars, dwell]);
+  }, [playing, speed, bars, dwell, paintTo]);
 
   const done = cursor >= bars - 1;
 
@@ -501,7 +575,6 @@ export function Replay({ data }: { data: ReplayData }) {
     cursorRef.current = 0;
     setCursor(0);
     paintedRef.current = -1;
-    lastTimeRef.current = -1;
     soundedRef.current = -1;
     milestoneRef.current = 0;
     setPlaying(true);
