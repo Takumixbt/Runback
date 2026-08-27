@@ -56,9 +56,9 @@ export function Metric({
 }) {
   const color = tone === undefined ? "#f6fefd" : tone >= 0 ? "#50d2c1" : "#ed7088";
   return (
-    <div className="flex min-w-0 flex-col gap-1 px-3 py-2.5">
+    <div className="flex min-w-0 flex-col justify-center gap-1.5 bg-ground px-3.5 py-3.5">
       <span className="truncate text-micro tracking-[0.08em] text-faint">{label}</span>
-      <span className="truncate text-read leading-none tabular-nums" style={{ color }}>
+      <span className="truncate text-lead leading-none tabular-nums" style={{ color }}>
         {value}
       </span>
       {sub && <span className="truncate text-micro text-faint">{sub}</span>}

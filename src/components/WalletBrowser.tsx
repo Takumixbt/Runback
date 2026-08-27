@@ -277,7 +277,7 @@ export function WalletBrowser({
       )}
 
       {eps.length > 0 && (
-        <div className="hl-fade flex flex-col gap-3">
+        <div className="hl-fade flex flex-col gap-4">
           <Summary eps={eps} />
           <EpisodeTable
             eps={eps}
@@ -338,19 +338,16 @@ function Summary({ eps }: { eps: Episode[] }) {
   }, [eps]);
 
   return (
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[8px] border border-border bg-border sm:grid-cols-3 lg:grid-cols-6">
-      <Metric
-        label="POSITIONS"
-        value={String(s.count)}
-        />
+    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[8px] border border-border bg-border sm:grid-cols-3 md:grid-cols-6">
+      <Metric label="POSITIONS" value={String(s.count)} />
       <Metric label="NET" value={signedUsd(s.net)} tone={s.net} />
       <Metric
         label="WIN RATE"
         value={s.closed > 0 ? `${Math.round(s.rate * 100)}%` : "–"}
-/>
+      />
       <Metric label="BEST" value={signedUsd(s.best)} tone={s.best} />
       <Metric label="WORST" value={signedUsd(s.worst)} tone={s.worst} />
-<Metric label="SIZE TRADED" value={usdCompact(s.volume)} />
+      <Metric label="SIZE TRADED" value={usdCompact(s.volume)} />
     </div>
   );
 }
@@ -435,61 +432,48 @@ function EpisodeTable({
   useEffect(() => setVisible(PAGE_ROWS), [sort, market, onlyDrawable]);
 
   return (
-    <Panel
-      label="POSITIONS"
-      aside={
-        <span className="flex items-center gap-2 text-faint">
+    <Panel flush>
+      {/*
+        Title and tools share a row; markets get their own. Cramming chips, a scrollbar,
+        Replayable and the sort into one strip is what made this look unfinished: the
+        chips collided with the controls, and the native scrollbar sat under the icons.
+      */}
+      <div className="flex flex-col gap-2 border-b border-border px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="text-micro tracking-[0.08em] text-faint">POSITIONS</span>
+          <span className="text-mini text-faint">
+            {shown.length === eps.length
+              ? `${eps.length} · ${drawable} replayable`
+              : `${shown.length} of ${eps.length}`}
+          </span>
           {streaming && (
-            <span className="flex items-center gap-1.5 text-accent-soft">
+            <span className="flex items-center gap-1.5 text-mini text-accent-soft">
               <span className="inline-block h-1.5 w-1.5 animate-[hl-pulse_1.2s_ease-in-out_infinite] rounded-full bg-accent-soft" />
               {streaming}
             </span>
           )}
-          {shown.length === eps.length
-            ? `${eps.length} · ${drawable} replayable`
-            : `${shown.length} of ${eps.length}`}
-        </span>
-      }
-      flush
-    >
-      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2">
-        <div className="scrollers flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-          <Chip active={market === null} onClick={() => setMarket(null)}>
-            All
-          </Chip>
-          {byMarket.map(([coin, n]) => (
-            <Chip
-              key={coin}
-              active={market === coin}
-              onClick={() => setMarket(market === coin ? null : coin)}
-            >
-              <CoinIcon coin={coin} label={labelFor(coin, markets)} size={13} />
-              {labelFor(coin, markets)}
-              <span className="text-faint">{n}</span>
-            </Chip>
-          ))}
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <button
             onClick={() => setOnlyDrawable((v) => !v)}
             aria-pressed={onlyDrawable}
-            className={`rounded-[6px] border px-2 py-1 text-micro tracking-[0.06em] transition-colors duration-[120ms] ${
+            className={`h-[26px] rounded-[6px] border px-2.5 text-mini transition-colors duration-[120ms] ${
               onlyDrawable
                 ? "border-accent-soft text-accent"
                 : "border-border text-faint hover:border-muted hover:text-muted"
             }`}
           >
-            REPLAYABLE
+            Replayable
           </button>
 
-          <div className="flex items-center gap-0.5 rounded-[6px] border border-border p-0.5">
+          <div className="flex h-[26px] items-center rounded-[6px] border border-border p-[2px]">
             {SORTS.map((o) => (
               <button
                 key={o.key}
                 onClick={() => setSort(o.key)}
                 aria-pressed={sort === o.key}
-                className={`rounded-[4px] px-2 py-0.5 text-micro transition-colors duration-[120ms] ${
+                className={`h-full whitespace-nowrap rounded-[4px] px-2.5 text-mini transition-colors duration-[120ms] ${
                   sort === o.key ? "bg-inset text-tx" : "text-faint hover:text-muted"
                 }`}
               >
@@ -498,6 +482,23 @@ function EpisodeTable({
             ))}
           </div>
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-3 py-2.5">
+        <Chip active={market === null} onClick={() => setMarket(null)}>
+          All
+        </Chip>
+        {byMarket.map(([coin, n]) => (
+          <Chip
+            key={coin}
+            active={market === coin}
+            onClick={() => setMarket(market === coin ? null : coin)}
+          >
+            <CoinIcon coin={coin} label={labelFor(coin, markets)} size={13} />
+            {labelFor(coin, markets)}
+            <span className="text-micro text-faint">{n}</span>
+          </Chip>
+        ))}
       </div>
 
       {shown.length === 0 ? (
@@ -654,7 +655,7 @@ function Chip({
     <button
       onClick={onClick}
       aria-pressed={active}
-      className={`flex shrink-0 items-center gap-1.5 rounded-[6px] border px-2 py-1 text-mini transition-colors duration-[120ms] ${
+      className={`flex h-[26px] shrink-0 items-center gap-1.5 rounded-[6px] border px-2.5 text-mini transition-colors duration-[120ms] ${
         active
           ? "border-accent-soft text-tx"
           : "border-border text-muted hover:border-muted hover:text-tx"
