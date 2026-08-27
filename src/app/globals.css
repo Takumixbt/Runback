@@ -117,13 +117,23 @@ body {
   border-radius: 5px;
 }
 
-button {
-  font: inherit;
-  color: inherit;
-  cursor: pointer;
-  background: none;
-  border: none;
-  padding: 0;
+/*
+ * Button reset belongs in base, not unlayered.
+ *
+ * An unlayered `padding: 0` beats every Tailwind `px-*` / `py-*` utility, so the
+ * segmented sort read as one word (BiggestBestWorstRecent) and chips sat flush
+ * against their borders. In base, the reset still wins over the browser, and
+ * utilities can pad a button again.
+ */
+@layer base {
+  button {
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+  }
 }
 
 button:disabled {
