@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
+import { Avatar } from "@/components/Avatar";
 import { WalletBrowser } from "@/components/WalletBrowser";
 import { shortAddress } from "@/lib/format";
+import { NOTABLE } from "@/lib/notable";
 
 /**
  * Every wallet gets its own tab title.
  *
  * Without this each open wallet reads "Runback", so three tabs of three different traders
- * are indistinguishable and browser history is useless. The address is the name of the
- * page, so the address is the title.
+ * are indistinguishable and browser history is useless. The title is the trader's name
+ * when we know it, otherwise the address.
  */
 export async function generateMetadata({
   params,
@@ -15,10 +17,13 @@ export async function generateMetadata({
   params: Promise<{ wallet: string }>;
 }): Promise<Metadata> {
   const { wallet } = await params;
-  const short = shortAddress(wallet.toLowerCase(), 6);
+  const lower = wallet.toLowerCase();
+  const who = NOTABLE.find((n) => n.address === lower);
+  const short = shortAddress(lower, 6);
+  const name = who?.name ?? short;
   return {
-    title: `${short} · Runback`,
-    description: `Every position ${short} has taken on Hyperliquid, replayed.`,
+    title: `${name} · Runback`,
+    description: `Every position ${name} has taken on Hyperliquid, replayed.`,
   };
 }
 
@@ -38,25 +43,36 @@ export default async function WalletPage({
   const { wallet } = await params;
   const { p } = await searchParams;
   const lower = wallet.toLowerCase();
+  const who = NOTABLE.find((n) => n.address === lower);
+  const short = shortAddress(lower, 8);
 
   return (
-    <main className="mx-auto flex w-full max-w-[1180px] flex-col gap-3 px-4 py-5">
-      <header className="flex flex-wrap items-center gap-2.5">
-        <span
-          aria-hidden
-          className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-full bg-inset text-micro text-muted"
-        >
-          {lower.slice(2, 4).toUpperCase()}
-        </span>
-        <h1 className="text-lead leading-none text-title">{shortAddress(lower, 8)}</h1>
-        <a
-          href={`https://app.hyperliquid.xyz/explorer/address/${lower}`}
-          target="_blank"
-          rel="noreferrer noopener"
-          className="text-mini text-faint transition-colors duration-[120ms] hover:text-accent-soft"
-        >
-          Explorer ↗
-        </a>
+    <main className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-4 py-6">
+      <header className="flex items-center gap-3">
+        <Avatar address={lower} name={who?.name ?? short} src={who?.avatar} size={36} />
+        <div className="flex min-w-0 flex-col gap-1.5">
+          <h1 className="truncate text-head leading-none text-title">
+            {who?.name ?? short}
+          </h1>
+          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-mini text-faint">
+            {who && <span className="text-muted">{short}</span>}
+            {who?.handle && (
+              <>
+                <span aria-hidden>·</span>
+                <span>@{who.handle}</span>
+              </>
+            )}
+            {who && <span aria-hidden>·</span>}
+            <a
+              href={`https://app.hyperliquid.xyz/explorer/address/${lower}`}
+              target="_blank"
+              rel="noreferrer noopener"
+              className="transition-colors duration-[120ms] hover:text-accent-soft"
+            >
+              Explorer ↗
+            </a>
+          </div>
+        </div>
       </header>
 
       <WalletBrowser initial={lower} position={p} />
