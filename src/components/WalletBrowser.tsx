@@ -458,7 +458,7 @@ function EpisodeTable({
           <button
             onClick={() => setOnlyDrawable((v) => !v)}
             aria-pressed={onlyDrawable}
-            className={`h-[26px] rounded-[6px] border px-2.5 text-mini transition-colors duration-[120ms] ${
+            className={`h-[28px] rounded-[6px] border px-2.5 text-mini transition-colors duration-[120ms] ${
               onlyDrawable
                 ? "border-accent-soft text-accent"
                 : "border-border text-faint hover:border-muted hover:text-muted"
@@ -467,13 +467,13 @@ function EpisodeTable({
             Replayable
           </button>
 
-          <div className="flex h-[26px] items-center rounded-[6px] border border-border p-[2px]">
+          <div className="flex h-[28px] w-full min-w-0 items-center gap-0.5 rounded-[6px] border border-border p-[3px] sm:w-auto">
             {SORTS.map((o) => (
               <button
                 key={o.key}
                 onClick={() => setSort(o.key)}
                 aria-pressed={sort === o.key}
-                className={`h-full whitespace-nowrap rounded-[4px] px-2.5 text-mini transition-colors duration-[120ms] ${
+                className={`h-full flex-1 whitespace-nowrap rounded-[4px] px-2.5 text-mini transition-colors duration-[120ms] sm:flex-none ${
                   sort === o.key ? "bg-inset text-tx" : "text-faint hover:text-muted"
                 }`}
               >
@@ -655,7 +655,7 @@ function Chip({
     <button
       onClick={onClick}
       aria-pressed={active}
-      className={`flex h-[26px] shrink-0 items-center gap-1.5 rounded-[6px] border px-2.5 text-mini transition-colors duration-[120ms] ${
+      className={`flex h-[28px] shrink-0 items-center gap-1.5 rounded-[6px] border px-2.5 text-mini transition-colors duration-[120ms] ${
         active
           ? "border-accent-soft text-tx"
           : "border-border text-muted hover:border-muted hover:text-tx"
