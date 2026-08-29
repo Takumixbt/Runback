@@ -3,19 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { isAddress } from "@/lib/hl";
+import { parseAccount, isVenueId, venueFits, walletPath, type VenueId } from "@/lib/venue";
 import { Logo } from "./Logo";
 
 /**
  * The top bar, present on every page.
  *
- * Hyperliquid's terminal keeps its wordmark and its primary control fixed at the top and
- * never makes you go back to a home page to change what you are looking at. The address
- * box here does the same job their market selector does: it is how you change the subject,
- * and it is always in reach.
- *
- * On the landing page it is hidden, because the same box is the hero there and two of them
- * on one screen looks like a mistake.
+ * The address box is how you change the subject, and it is always in reach.
+ * On the landing page it is hidden, because the same box is the hero there.
  */
 export function Nav() {
   const pathname = usePathname();
@@ -24,17 +19,22 @@ export function Nav() {
   const [bad, setBad] = useState(false);
 
   const onHome = pathname === "/";
+  const currentVenue = pathname.split("/")[2];
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    const who = value.trim().toLowerCase();
-    if (!isAddress(who)) {
+    const acc = parseAccount(value);
+    if (!acc) {
       setBad(true);
       return;
     }
     setBad(false);
     setValue("");
-    router.push(`/w/${who}`);
+    const stay =
+      isVenueId(currentVenue ?? "") && venueFits(currentVenue as VenueId, acc.canonical)
+        ? (currentVenue as VenueId)
+        : acc.defaultVenue;
+    router.push(walletPath(stay, acc.canonical));
   };
 
   return (
@@ -73,7 +73,7 @@ export function Nav() {
               placeholder="Another wallet…"
               spellCheck={false}
               autoComplete="off"
-              aria-label="Look up a Hyperliquid address"
+              aria-label="Look up a wallet"
               className="min-w-0 flex-1 bg-transparent text-mini text-tx outline-none placeholder:text-faint"
             />
           </div>

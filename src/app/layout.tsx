@@ -7,10 +7,10 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Runback",
   description:
-    "Paste a Hyperliquid wallet, browse its trades, replay one as a video you can post.",
+    "Paste a wallet on Hyperliquid, Lighter, Drift, Pacifica, dYdX or Jupiter. Browse its trades, replay one as a video you can post.",
   openGraph: {
     title: "Runback",
-    description: "Run it back. Every position on Hyperliquid, replayed.",
+    description: "Run it back. Positions on the perp books that actually publish a tape.",
     type: "website",
   },
 };
@@ -36,6 +36,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {/* Read from the browser, so warm both connections before anything asks. */}
         <link rel="preconnect" href="https://api.hyperliquid.xyz" />
         <link rel="preconnect" href="https://app.hyperliquid.xyz" />
+        <link rel="preconnect" href="https://mainnet.zklighter.elliot.ai" />
+        <link rel="preconnect" href="https://indexer.dydx.trade" />
+        <link rel="preconnect" href="https://perps-api.jup.ag" />
       </head>
       <body>
         {/*

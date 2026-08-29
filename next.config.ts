@@ -1,8 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Nothing is fetched server-side that a visitor triggers, so there is no image
-  // proxying, no rewrites and no secrets. The app is static except for the gallery.
+  // Visitor-triggered reads go to each venue from the browser when CORS allows.
+  // Pacifica (and Drift if the host has moved) fall through `/api/x/{venue}`.
   reactStrictMode: true,
 };
 
