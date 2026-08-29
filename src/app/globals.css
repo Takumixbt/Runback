@@ -41,15 +41,8 @@
   --radius-hl: 12px;
   --radius-hl-sm: 8px;
 
-  --font-sans: Inter, system-ui, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", sans-serif;
-
   /**
    * A type scale, because there was not one.
-   *
-   * Eleven arbitrary sizes were in use across the app: 9, 10, 11, 12, 13, 14, 15, 16, 17,
-   * 22 and 46 pixels, each picked in the moment for the element in front of me. Nothing
-   * looks composed when every element negotiates its own size, and the eye reads the
-   * near-misses (14 next to 15, 16 next to 17) as sloppiness even when it cannot name why.
    *
    * Seven steps, each with a job:
    *   micro   uppercase labels and badges, always with tracking
@@ -60,15 +53,21 @@
    *   head    page titles and the market on a replay
    *   figure  the PnL that moves
    *   hero    the end card, once
+   *   display the home headline
    */
-  --text-micro: 10px;
-  --text-mini: 11px;
-  --text-body: 12px;
-  --text-read: 13px;
-  --text-lead: 15px;
-  --text-head: 20px;
-  --text-figure: 30px;
-  --text-hero: 44px;
+  --text-micro: 11px;
+  --text-mini: 13px;
+  --text-body: 14px;
+  --text-read: 15px;
+  --text-lead: 17px;
+  --text-head: 24px;
+  --text-figure: 32px;
+  --text-hero: 52px;
+  --text-display: 64px;
+
+  --font-sans: var(--font-inter), Inter, system-ui, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", sans-serif;
+  --shadow-card: 0 0 0 1px #ffffff08 inset, 0 18px 50px -24px #00000088;
+  --glow-mint: 0 0 80px -20px #50d2c155;
 }
 
 :root {
@@ -80,7 +79,8 @@ body {
   background: var(--color-ground);
   color: var(--color-tx);
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: 15px;
+  letter-spacing: -0.011em;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overscroll-behavior-x: none;
@@ -88,6 +88,11 @@ body {
 
 body {
   margin: 0;
+  background-image:
+    radial-gradient(1100px 560px at 50% -120px, rgb(80 210 193 / 0.18), transparent 55%),
+    radial-gradient(780px 420px at 110% -10%, rgb(23 69 63 / 0.42), transparent 48%),
+    radial-gradient(640px 320px at -10% 110%, rgb(80 210 193 / 0.06), transparent 52%);
+  background-attachment: fixed;
 }
 
 /* Every figure in this app sits in a column with another figure. No exceptions. */
@@ -226,6 +231,35 @@ summary:focus-visible {
   background-size: 200% 100%;
   animation: hl-shimmer 1.8s linear infinite;
   border-radius: var(--radius-hl-sm);
+}
+
+.rb-card {
+  border: 1px solid rgb(255 255 255 / 0.07);
+  background:
+    linear-gradient(180deg, rgb(255 255 255 / 0.035), transparent 42%),
+    linear-gradient(180deg, rgb(21 34 39 / 0.94) 0%, rgb(15 26 31 / 0.96) 100%);
+  box-shadow: var(--shadow-card);
+  border-radius: 16px;
+}
+
+.rb-card-hover {
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+.rb-card-hover:hover {
+  border-color: rgb(80 210 193 / 0.28);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-card), var(--glow-mint);
+}
+
+.rb-kicker {
+  font-size: var(--text-micro);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-accent-soft);
+  font-weight: 500;
 }
 
 @media (prefers-reduced-motion: reduce) {

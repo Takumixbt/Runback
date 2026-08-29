@@ -6,12 +6,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { parseAccount, isVenueId, venueFits, walletPath, type VenueId } from "@/lib/venue";
 import { Logo } from "./Logo";
 
-/**
- * The top bar, present on every page.
- *
- * The address box is how you change the subject, and it is always in reach.
- * On the landing page it is hidden, because the same box is the hero there.
- */
 export function Nav() {
   const pathname = usePathname();
   const router = useRouter();
@@ -38,10 +32,10 @@ export function Nav() {
   };
 
   return (
-    <nav className="flex h-[46px] shrink-0 items-center justify-between gap-4 border-b border-border px-4">
-      <Link href="/" className="flex items-center gap-2">
-        <Logo size={20} />
-        <span className="text-lead leading-none tracking-[-0.01em] text-title">
+    <nav className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-white/5 bg-ground/75 px-4 backdrop-blur-xl sm:px-5">
+      <Link href="/" className="flex items-center gap-2.5">
+        <Logo size={24} />
+        <span className="text-[18px] font-medium leading-none tracking-[-0.04em] text-title">
           Runback
         </span>
       </Link>
@@ -49,13 +43,13 @@ export function Nav() {
       {!onHome && (
         <form onSubmit={submit} className="flex min-w-0 flex-1 justify-end">
           <div
-            className={`flex h-[30px] w-full max-w-[300px] items-center gap-2 rounded-[8px] border px-2.5 transition-colors duration-[120ms] focus-within:border-muted ${
-              bad ? "border-error" : "border-border hover:border-muted"
+            className={`flex h-10 w-full max-w-[420px] items-center gap-2 rounded-full border bg-inset/35 pl-3.5 pr-1 transition-colors duration-150 focus-within:border-accent-soft/60 ${
+              bad ? "border-error" : "border-white/8 hover:border-white/16"
             }`}
           >
             <svg
               viewBox="0 0 16 16"
-              className="h-3 w-3 shrink-0 text-faint"
+              className="h-3.5 w-3.5 shrink-0 text-faint"
               fill="none"
               stroke="currentColor"
               strokeWidth="1.5"
@@ -70,12 +64,19 @@ export function Nav() {
                 setValue(e.target.value);
                 if (bad) setBad(false);
               }}
-              placeholder="Another wallet…"
+              placeholder="Look up another wallet"
               spellCheck={false}
               autoComplete="off"
               aria-label="Look up a wallet"
-              className="min-w-0 flex-1 bg-transparent text-mini text-tx outline-none placeholder:text-faint"
+              aria-invalid={bad}
+              className="min-w-0 flex-1 bg-transparent text-read text-tx outline-none placeholder:text-faint"
             />
+            <button
+              type="submit"
+              className="h-8 shrink-0 rounded-full bg-accent-soft px-3.5 text-mini font-medium text-accent-text transition-[filter] duration-150 hover:brightness-110"
+            >
+              Open
+            </button>
           </div>
         </form>
       )}

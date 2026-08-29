@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 /**
  * A trader's face, or a stand-in that is at least theirs.
@@ -10,6 +10,19 @@ import { useState } from "react";
  * toward the palette rather than spread over the whole wheel: a random hue lands on a
  * colour nothing else in the interface uses and reads as a bug.
  */
+function initialsOf(name: string): string {
+  const raw = name.trim();
+  if (!raw || /^0x/i.test(raw) || raw.includes("…") || raw.includes("...")) return "";
+  const parts = raw.split(/\s+/).filter(Boolean);
+  if (parts.length >= 2) {
+    const a = parts[0]!.replace(/[^A-Za-z]/g, "")[0];
+    const b = parts[1]!.replace(/[^A-Za-z]/g, "")[0];
+    if (a && b) return (a + b).toUpperCase();
+  }
+  const letters = raw.replace(/[^A-Za-z]/g, "");
+  return letters.slice(0, 2).toUpperCase();
+}
+
 function hues(address: string): [number, number] {
   let h = 0;
   for (let i = 2; i < address.length; i += 1) {
@@ -34,6 +47,22 @@ export function Avatar({
 }) {
   const [failed, setFailed] = useState(false);
 
+  useEffect(() => {
+    if (!src) return;
+    let alive = true;
+    const probe = new Image();
+    probe.onload = () => {
+      if (alive) setFailed(false);
+    };
+    probe.onerror = () => {
+      if (alive) setFailed(true);
+    };
+    probe.src = src;
+    return () => {
+      alive = false;
+    };
+  }, [src]);
+
   if (src && !failed) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
@@ -45,8 +74,8 @@ export function Avatar({
         height={size}
         loading="lazy"
         decoding="async"
-        onError={() => setFailed(true)}
         className="shrink-0 rounded-full object-cover"
+        suppressHydrationWarning
         style={{ width: size, height: size }}
       />
     );
@@ -61,7 +90,7 @@ export function Avatar({
    * does not. With no name the gradient carries the identity on its own, and it is still
    * unique to the address.
    */
-  const initials = name.replace(/[^A-Za-z]/g, "").slice(0, 2).toUpperCase();
+  const initials = initialsOf(name);
   return (
     <span
       aria-hidden

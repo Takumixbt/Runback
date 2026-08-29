@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { Avatar } from "@/components/Avatar";
+import { CopyAddress } from "@/components/CopyAddress";
 import { WalletBrowser } from "@/components/WalletBrowser";
 import { shortAddress } from "@/lib/format";
 import { NOTABLE } from "@/lib/notable";
@@ -40,8 +41,7 @@ export async function generateMetadata({
   const parsed = parseSlug(slug);
   if (!parsed) return { title: "Runback" };
   const v = venue(parsed.venueId)!;
-  const notable =
-    v.id === "hyperliquid" ? NOTABLE.find((n) => n.address === parsed.wallet) : undefined;
+  const notable = NOTABLE.find((n) => n.address === parsed.wallet);
   const short = shortAddress(parsed.wallet, 6);
   const name = notable?.name ?? short;
   return {
@@ -80,51 +80,52 @@ export default async function WalletPage({
   const venueId = parsed.venueId;
   const who = parsed.wallet;
   const v = venue(venueId)!;
-  const notable = v.id === "hyperliquid" ? NOTABLE.find((n) => n.address === who) : undefined;
+  const notable = NOTABLE.find((n) => n.address === who);
   const short = shortAddress(who, 8);
   const explorer = v.explorer(who);
   const siblings = venuesFor(v.kind);
 
   return (
-    <main className="mx-auto flex w-full max-w-[1180px] flex-col gap-4 px-4 py-6">
-      <header className="flex items-center gap-3">
-        <Avatar address={who} name={notable?.name ?? short} src={notable?.avatar} size={36} />
-        <div className="flex min-w-0 flex-col gap-1.5">
-          <h1 className="truncate text-head leading-none text-title">
+    <main className="mx-auto flex w-full max-w-[1180px] flex-col gap-6 px-4 py-8">
+      <header className="rb-card flex flex-wrap items-center gap-4 px-5 py-5">
+        <Avatar address={who} name={notable?.name ?? ""} src={notable?.avatar} size={56} />
+        <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+          <h1 className="truncate text-[1.65rem] font-medium leading-none tracking-[-0.04em] text-title">
             {notable?.name ?? short}
           </h1>
-          <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-mini text-faint">
-            {notable && <span className="text-muted">{short}</span>}
+          <div className="flex flex-wrap items-center gap-2">
+            <CopyAddress value={who} showAddress={!!notable} />
             {notable?.handle && (
-              <>
-                <span aria-hidden>·</span>
-                <span>@{notable.handle}</span>
-              </>
+              <span className="text-mini text-faint">@{notable.handle}</span>
             )}
+            <span className="rounded-full border border-white/8 px-2.5 py-1 text-micro font-medium tracking-[0.12em] text-muted">
+              {v.name}
+            </span>
             {explorer && (
-              <>
-                {notable ? <span aria-hidden>·</span> : null}
-                <a
-                  href={explorer}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                  className="transition-colors duration-[120ms] hover:text-accent-soft"
-                >
-                  Explorer ↗
-                </a>
-              </>
+              <a
+                href={explorer}
+                target="_blank"
+                rel="noreferrer noopener"
+                className="text-mini text-faint transition-colors duration-150 hover:text-accent-soft"
+              >
+                Explorer ↗
+              </a>
             )}
           </div>
         </div>
         {siblings.length > 1 && (
-          <nav className="ml-auto flex shrink-0 items-center gap-1" aria-label="Venue">
+          <nav
+            className="flex shrink-0 items-center gap-0.5 rounded-full border border-white/8 bg-inset/40 p-1 sm:ml-auto"
+            aria-label="Venue"
+          >
             {siblings.map((s) => (
               <Link
                 key={s.id}
                 href={walletPath(s.id, who)}
                 aria-current={s.id === v.id ? "page" : undefined}
-                className={`rounded-[6px] px-2 py-1 text-mini transition-colors duration-[120ms] ${
-                  s.id === v.id ? "bg-inset text-tx" : "text-faint hover:text-muted"
+                title={s.name}
+                className={`rounded-full px-3.5 py-1.5 text-mini font-medium transition-colors duration-150 ${
+                  s.id === v.id ? "bg-accent-soft text-accent-text" : "text-faint hover:text-tx"
                 }`}
               >
                 {s.short}

@@ -4,8 +4,9 @@ Paste a wallet. Every position it has taken on a perp book we can actually read 
 back as a catalogue you can filter and rank. Open one and watch it play out on the
 chart, entry to exit, with the drawdown a PnL card leaves off, then export the clip.
 
-Hyperliquid is the native fit. Lighter takes the same 0x. Drift, Pacifica and Jupiter
-take a Solana key. dYdX takes `dydx1…`. Aster is not here: user history is signed.
+Hyperliquid is the native fit. Lighter and RiseX take the same 0x. Drift, Pacifica
+and Jupiter take a Solana key. dYdX takes `dydx1…`. Aster and Extended are not here:
+user history is signed or keyed.
 
 ## Run it
 
@@ -13,9 +14,9 @@ take a Solana key. dYdX takes `dydx1…`. Aster is not here: user history is sig
     npm run dev
 
 No `.env`, no key, no account. Hyperliquid, Lighter, dYdX and Jupiter answer
-`access-control-allow-origin: *`, so the browser reads them directly. Pacifica (and
-Drift if its host has moved) go through `/api/x/{venue}` because they do not send CORS
-headers; that proxy is the exception, not the architecture.
+`access-control-allow-origin: *`, so the browser reads them directly. Pacifica, RiseX
+(and Drift if its host has moved) go through `/api/x/{venue}` because they do not send
+CORS headers; that proxy is the exception, not the architecture.
 
 ## Why that matters more than it sounds
 

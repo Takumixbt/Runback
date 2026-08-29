@@ -1,13 +1,21 @@
 import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
 import { MarketProvider } from "@/components/MarketProvider";
 import { Nav } from "@/components/Nav";
 import { Ticker } from "@/components/Ticker";
 import "./globals.css";
 
+const inter = Inter({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "Runback",
   description:
-    "Paste a wallet on Hyperliquid, Lighter, Drift, Pacifica, dYdX or Jupiter. Browse its trades, replay one as a video you can post.",
+    "Paste a wallet on Hyperliquid, Lighter, RiseX, Drift, Pacifica, dYdX or Jupiter. Browse its trades, replay one as a video you can post.",
   openGraph: {
     title: "Runback",
     description: "Run it back. Positions on the perp books that actually publish a tape.",
@@ -15,36 +23,20 @@ export const metadata: Metadata = {
   },
 };
 
-/** Their ground colour, so browser chrome does not flash white on load. */
 export const viewport: Viewport = { themeColor: "#0f1a1e", colorScheme: "dark" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={inter.variable}>
       <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        {/*
-          Hyperliquid ships Inter under the name "OurFont", so this is literally their
-          typeface. Weights kept to 400/500: their interface is almost entirely regular,
-          including its titles, and matching that matters more than any colour here.
-        */}
-        <link
-          rel="stylesheet"
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap"
-        />
-        {/* Read from the browser, so warm both connections before anything asks. */}
         <link rel="preconnect" href="https://api.hyperliquid.xyz" />
         <link rel="preconnect" href="https://app.hyperliquid.xyz" />
         <link rel="preconnect" href="https://mainnet.zklighter.elliot.ai" />
         <link rel="preconnect" href="https://indexer.dydx.trade" />
         <link rel="preconnect" href="https://perps-api.jup.ag" />
+        <link rel="preconnect" href="https://api.rise.trade" />
       </head>
-      <body>
-        {/*
-          The chrome is fixed and only the page scrolls, which is how the terminal behaves:
-          the wordmark, the address box and the marks never leave.
-        */}
+      <body className={inter.className}>
         <MarketProvider>
           <div className="flex h-dvh flex-col overflow-hidden">
             <Nav />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const BASE = "https://app.hyperliquid.xyz/coins";
 
@@ -57,6 +57,24 @@ export function CoinIcon({
 }) {
   const tries = useMemo(() => candidates(coin, label), [coin, label]);
   const [attempt, setAttempt] = useState(0);
+  const [armed, setArmed] = useState(false);
+  const img = useRef<HTMLImageElement>(null);
+
+  useEffect(() => {
+    setArmed(true);
+  }, []);
+
+  useEffect(() => {
+    setAttempt(0);
+  }, [coin, label]);
+
+  useEffect(() => {
+    if (!armed) return;
+    const el = img.current;
+    if (el && el.complete && el.naturalWidth === 0) {
+      setAttempt((a) => a + 1);
+    }
+  }, [armed, attempt, tries]);
 
   if (attempt >= tries.length) {
     return (
@@ -73,6 +91,7 @@ export function CoinIcon({
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
+      ref={img}
       // Keyed on the attempt so React swaps the element rather than reusing a failed one.
       key={tries[attempt]}
       src={`${BASE}/${encodeURIComponent(tries[attempt]!)}.svg`}
@@ -82,7 +101,10 @@ export function CoinIcon({
       height={size}
       loading="lazy"
       decoding="async"
-      onError={() => setAttempt((a) => a + 1)}
+      onError={() => {
+        if (!armed) return;
+        setAttempt((a) => a + 1);
+      }}
       className="shrink-0 rounded-full"
       style={{ width: size, height: size }}
     />

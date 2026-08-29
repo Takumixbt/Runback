@@ -1,15 +1,18 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { kindOf, labelFor, type Market } from "@/lib/hl";
 import { adapter } from "@/lib/venues";
 import {
+  KIND_LABEL,
   parseAccount,
-  VENUES,
   venue as venueOf,
   venueFits,
   venuesFor,
   walletPath,
+  type AddressKind,
   type VenueId,
 } from "@/lib/venue";
 import {
@@ -86,15 +89,17 @@ export function WalletBrowser({
   const abort = useRef<AbortController | null>(null);
   /** The address the current results belong to, which is not always what is in the box. */
   const loaded = useRef<string>("");
+  const router = useRouter();
   const book = venueOf(picked)!;
   const api = adapter(picked);
 
   useEffect(() => {
+    if (!initial) return;
     adapter(picked)
       .markets()
       .then(setMarkets)
       .catch(() => setMarkets(null));
-  }, [picked]);
+  }, [picked, initial]);
 
   const load = useCallback(async (who: string, on: VenueId = picked) => {
     abort.current?.abort();
@@ -148,10 +153,9 @@ export function WalletBrowser({
       }
       const dest = venueFits(picked, acc.canonical) ? picked : acc.defaultVenue;
       if (dest !== picked) setPicked(dest);
-      window.history.replaceState(null, "", walletPath(dest, acc.canonical));
-      void load(acc.canonical, dest);
+      router.push(walletPath(dest, acc.canonical));
     },
-    [address, load, picked],
+    [address, picked, router],
   );
 
   /**
@@ -222,7 +226,7 @@ export function WalletBrowser({
       <div className="hl-fade flex flex-col gap-3">
         <button
           onClick={() => setReplay(null)}
-          className="flex w-fit items-center gap-1.5 text-mini text-muted transition-colors duration-[120ms] hover:text-tx"
+          className="flex w-fit items-center gap-1.5 rounded-full border border-white/8 bg-inset/30 px-3.5 py-2 text-mini text-muted transition-colors duration-150 hover:border-white/16 hover:text-tx"
         >
           <span aria-hidden>←</span> All positions
         </button>
@@ -247,80 +251,120 @@ export function WalletBrowser({
   /** On a wallet route the address is already in the nav, so the hero form is redundant. */
   const showForm = !initial;
   const typed = parseAccount(address);
-  const chipVenues = typed ? venuesFor(typed.kind) : VENUES;
+  const destId = typed
+    ? venueFits(picked, typed.canonical)
+      ? picked
+      : typed.defaultVenue
+    : null;
+  const grouped = typed
+    ? [{ kind: typed.kind, venues: venuesFor(typed.kind) }]
+    : (["evm", "solana", "dydx"] as AddressKind[])
+        .map((kind) => ({ kind, venues: venuesFor(kind) }))
+        .filter((g) => g.venues.length > 0);
+  const cta =
+    "inline-flex h-12 shrink-0 items-center justify-center rounded-full bg-accent-soft px-8 text-body font-medium text-accent-text transition-[filter,transform] duration-150 hover:brightness-110 active:scale-[0.99]";
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-4">
       {showForm && (
-        <form onSubmit={submit} className="flex flex-col gap-2">
-          <div className="flex flex-wrap items-center gap-1">
-            {chipVenues.map((v) => (
-              <button
-                key={v.id}
-                type="button"
-                onClick={() => setPicked(v.id)}
-                aria-pressed={picked === v.id}
-                className={`h-[28px] rounded-[6px] border px-2.5 text-mini transition-colors duration-[120ms] ${
-                  picked === v.id
-                    ? "border-accent-soft text-tx"
-                    : "border-border text-faint hover:border-muted hover:text-muted"
-                }`}
+        <form onSubmit={submit} className="rb-card flex flex-col gap-4 p-5 sm:p-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="flex h-12 flex-1 items-center gap-3 rounded-full border border-white/8 bg-inset/30 px-4 transition-colors duration-150 focus-within:border-accent-soft/70 hover:border-white/16">
+              <svg
+                viewBox="0 0 16 16"
+                className="h-[14px] w-[14px] shrink-0 text-faint"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                aria-hidden
               >
-                {v.name}
+                <circle cx="7" cy="7" r="4.5" />
+                <path d="M10.5 10.5 L14 14" strokeLinecap="round" />
+              </svg>
+              <input
+                value={address}
+                onChange={(e) => {
+                  const next = e.target.value;
+                  setAddress(next);
+                  const acc = parseAccount(next);
+                  if (acc && !venueFits(picked, acc.canonical)) setPicked(acc.defaultVenue);
+                }}
+                placeholder={book.placeholder}
+                spellCheck={false}
+                autoComplete="off"
+                aria-label="Wallet address"
+                className="min-w-0 flex-1 bg-transparent text-read text-tx outline-none placeholder:text-faint"
+              />
+            </div>
+            {destId && typed ? (
+              <Link href={walletPath(destId, typed.canonical)} className={cta}>
+                Open on {venueOf(destId)?.name}
+              </Link>
+            ) : (
+              <button type="submit" className={cta}>
+                Search
               </button>
+            )}
+          </div>
+          <div className="flex flex-col gap-2.5">
+            {grouped.map((g) => (
+              <div key={g.kind} className="flex items-start gap-3 sm:items-center">
+                {!typed && (
+                  <span className="w-14 shrink-0 pt-2 text-micro font-medium tracking-[0.16em] text-faint sm:pt-0">
+                    {KIND_LABEL[g.kind]}
+                  </span>
+                )}
+                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                  {g.venues.map((v) => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => setPicked(v.id)}
+                      aria-pressed={picked === v.id}
+                      className={`h-8 rounded-full px-3 text-mini font-medium transition-colors duration-150 ${
+                        picked === v.id
+                          ? "bg-accent-soft text-accent-text"
+                          : "border border-white/8 text-faint hover:border-white/16 hover:text-tx"
+                      }`}
+                    >
+                      {v.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-          <div className="flex h-[42px] flex-1 items-center gap-2.5 rounded-[8px] border border-border px-3.5 transition-colors duration-[120ms] focus-within:border-accent-soft hover:border-muted">
-            <svg
-              viewBox="0 0 16 16"
-              className="h-[13px] w-[13px] shrink-0 text-faint"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              aria-hidden
-            >
-              <circle cx="7" cy="7" r="4.5" />
-              <path d="M10.5 10.5 L14 14" strokeLinecap="round" />
-            </svg>
-            <input
-              value={address}
-              onChange={(e) => {
-                const next = e.target.value;
-                setAddress(next);
-                const acc = parseAccount(next);
-                if (acc && !venueFits(picked, acc.canonical)) setPicked(acc.defaultVenue);
-              }}
-              placeholder={book.placeholder}
-              spellCheck={false}
-              autoComplete="off"
-              aria-label="Wallet address"
-              className="min-w-0 flex-1 bg-transparent text-read text-tx outline-none placeholder:text-faint"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={busy}
-            className="h-[42px] rounded-[8px] bg-accent-soft px-7 text-body text-accent-text transition-[filter,transform] duration-[120ms] hover:brightness-105 active:scale-[0.99] disabled:bg-accent-dim disabled:text-muted"
-          >
-            {busy ? "Loading" : "Search"}
-          </button>
-          </div>
+          <p className="text-mini leading-relaxed text-faint">
+            {book.chain}
+            {book.kind === "evm"
+              ? " · the same 0x is a different tape on each of these books."
+              : book.kind === "solana"
+                ? " · a Solana key, not a 0x."
+                : " · a dydx1 account, not a 0x."}
+          </p>
         </form>
       )}
 
       {busy && <LoadingPanel note={phase.note} />}
 
       {phase.k === "error" && (
-        <div className="hl-fade rounded-[8px] border border-error/40 bg-error/10 px-3.5 py-2.5 text-body text-error">
+        <div className="hl-fade rb-card border-error/25 bg-error/8 px-5 py-4 text-body text-error">
           {phase.message}
         </div>
       )}
 
-      {phase.k === "ready" && eps.length === 0 && (
+      {phase.k === "ready" && eps.length === 0 && initial && (
+        <EmptyTape
+          venueName={book.name}
+          wallet={initial}
+          others={venuesFor(book.kind).filter((v) => v.id !== picked)}
+        />
+      )}
+
+      {phase.k === "ready" && eps.length === 0 && !initial && (
         <Panel>
-          <p className="py-8 text-center text-body text-faint">
-            No trades found for that wallet.
+          <p className="py-12 text-center text-lead text-faint">
+            No trades found for that wallet on {book.name}.
           </p>
         </Panel>
       )}
@@ -338,6 +382,52 @@ export function WalletBrowser({
         </div>
       )}
     </div>
+  );
+}
+
+function EmptyTape({
+  venueName,
+  wallet,
+  others,
+}: {
+  venueName: string;
+  wallet: string;
+  others: ReturnType<typeof venuesFor>;
+}) {
+  return (
+    <Panel>
+      <div className="flex flex-col items-center gap-4 px-6 py-14 text-center">
+        <span
+          aria-hidden
+          className="grid h-12 w-12 place-items-center rounded-full border border-white/8 bg-inset/50 text-accent-soft"
+        >
+          <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="1.6">
+            <path d="M4 19V5M4 19h16" strokeLinecap="round" />
+            <path d="M7 15l4-5 3 3 5-7" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </span>
+        <div className="flex flex-col gap-2">
+          <p className="text-lead font-medium text-title">Quiet on {venueName}</p>
+          <p className="mx-auto max-w-[28rem] text-body leading-relaxed text-muted">
+            No public fills we can read for this address on {venueName}. The same wallet
+            on another book is a different tape.
+          </p>
+        </div>
+        {others.length > 0 && (
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+            {others.map((s) => (
+              <Link
+                key={s.id}
+                href={walletPath(s.id, wallet)}
+                className="h-9 rounded-full border border-white/8 px-3.5 text-mini font-medium text-muted transition-colors duration-150 hover:border-accent-soft/40 hover:text-tx"
+              >
+                Try {s.name}
+              </Link>
+            ))}
+          </div>
+        )}
+      </div>
+    </Panel>
   );
 }
 
@@ -393,7 +483,7 @@ function Summary({ eps }: { eps: Episode[] }) {
       three times inside one screen. The count belongs to the list, so it lives on the
       list.
     */
-    <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[8px] border border-border bg-border sm:grid-cols-3 lg:grid-cols-5">
+    <div className="rb-card grid grid-cols-2 gap-px overflow-hidden bg-white/5 sm:grid-cols-3 lg:grid-cols-5">
       <Metric label="NET" value={signedUsd(s.net)} tone={s.net} />
       <Metric
         label="WIN RATE"
@@ -492,7 +582,7 @@ function EpisodeTable({
         Replayable and the sort into one strip is what made this look unfinished: the
         chips collided with the controls, and the native scrollbar sat under the icons.
       */}
-      <div className="flex flex-col gap-2 border-b border-border px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex flex-col gap-2 border-b border-white/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-2">
           <span className="text-micro tracking-[0.08em] text-faint">POSITIONS</span>
           <span className="text-mini text-faint">
@@ -539,15 +629,15 @@ function EpisodeTable({
             <div
               role="group"
               aria-label="Sort positions"
-              className="flex h-[28px] w-full min-w-0 items-center gap-0.5 rounded-[6px] border border-border p-[3px] sm:w-auto"
+              className="flex h-8 w-full min-w-0 items-center gap-0.5 rounded-full border border-white/8 bg-inset/30 p-[3px] sm:w-auto"
             >
               {SORTS.map((o) => (
                 <button
                   key={o.key}
                   onClick={() => setSort(o.key)}
                   aria-pressed={sort === o.key}
-                  className={`h-full flex-1 whitespace-nowrap rounded-[4px] px-2.5 text-mini transition-colors duration-[120ms] sm:flex-none ${
-                    sort === o.key ? "bg-inset text-tx" : "text-faint hover:text-muted"
+                  className={`h-full flex-1 whitespace-nowrap rounded-full px-3 text-mini font-medium transition-colors duration-150 sm:flex-none ${
+                    sort === o.key ? "bg-accent-soft text-accent-text" : "text-faint hover:text-tx"
                   }`}
                 >
                   {o.label}
@@ -558,7 +648,7 @@ function EpisodeTable({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5 border-b border-border px-3 py-2.5">
+      <div className="flex flex-wrap items-center gap-1.5 border-b border-white/5 px-4 py-3">
         <Chip active={market === null} onClick={() => setMarket(null)}>
           All
         </Chip>
@@ -588,15 +678,15 @@ function EpisodeTable({
               `bg-ground` is not optional here: a transparent sticky row lets the cells
               underneath show through it.
             */}
-            <thead className="sticky top-0 z-10 bg-ground">
-              <tr className="border-b border-border text-micro tracking-[0.08em] text-faint">
-                <th className="px-3 py-2 text-left font-normal">MARKET</th>
-                <th className="px-3 py-2 text-left font-normal">OPENED</th>
-                <th className="px-3 py-2 text-right font-normal">HELD</th>
-                <th className="px-3 py-2 text-right font-normal">SIZE</th>
-                <th className="px-3 py-2 text-right font-normal">NET</th>
-                <th className="px-3 py-2 text-right font-normal">RETURN</th>
-                <th className="px-3 py-2 text-right font-normal"></th>
+            <thead className="sticky top-0 z-10 bg-[#121e23]">
+              <tr className="border-b border-white/8 text-micro tracking-[0.08em] text-faint">
+                <th className="px-4 py-3 text-left font-normal">MARKET</th>
+                <th className="px-4 py-3 text-left font-normal">OPENED</th>
+                <th className="px-4 py-3 text-right font-normal">HELD</th>
+                <th className="px-4 py-3 text-right font-normal">SIZE</th>
+                <th className="px-4 py-3 text-right font-normal">NET</th>
+                <th className="px-4 py-3 text-right font-normal">RETURN</th>
+                <th className="px-4 py-3 text-right font-normal"></th>
               </tr>
             </thead>
             <tbody>
@@ -613,11 +703,11 @@ function EpisodeTable({
                   <tr
                     key={ep.id}
                     onClick={() => w && onOpen(ep)}
-                    className={`group border-b border-divider transition-colors duration-[120ms] last:border-b-0 ${
-                      dead ? "opacity-45" : "cursor-pointer hover:bg-inset/40"
+                    className={`group border-b border-white/5 transition-colors duration-150 last:border-b-0 ${
+                      dead ? "opacity-45" : "cursor-pointer hover:bg-inset/50"
                     }`}
                   >
-                    <td className="px-3 py-2.5">
+                    <td className="px-4 py-3.5">
                       <div className="flex items-center gap-2">
                         <CoinIcon coin={ep.coin} label={label} size={16} />
                         <span className="text-tx">{label}</span>
@@ -644,28 +734,28 @@ function EpisodeTable({
                         )}
                       </div>
                     </td>
-                    <td className="px-3 py-2.5 text-muted">{when(ep.start)}</td>
-                    <td className="px-3 py-2.5 text-right text-muted">
+                    <td className="px-4 py-3.5 text-muted">{when(ep.start)}</td>
+                    <td className="px-4 py-3.5 text-right text-muted">
                       {ep.open ? "–" : duration(ep.end - ep.start)}
                     </td>
-                    <td className="px-3 py-2.5 text-right text-muted">
+                    <td className="px-4 py-3.5 text-right text-muted">
                       {usdCompact(ep.peakNotional)}
                     </td>
                     <td
-                      className="px-3 py-2.5 text-right"
+                      className="px-4 py-3.5 text-right"
                       style={{ color: ep.open ? FAINT : ep.net >= 0 ? UP : DOWN }}
                     >
                       {ep.open ? "–" : signedUsd(ep.net)}
                     </td>
                     <td
-                      className="px-3 py-2.5 text-right"
+                      className="px-4 py-3.5 text-right"
                       style={{
                         color: ep.open || roe === null ? FAINT : roe >= 0 ? UP : DOWN,
                       }}
                     >
                       {ep.open || roe === null ? "–" : pct(roe)}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-2.5 text-right">
+                    <td className="whitespace-nowrap px-4 py-3.5 text-right">
                       {w ? (
                         /*
                           A real button, not a span dressed as one. The row carries the
@@ -679,10 +769,10 @@ function EpisodeTable({
                             onOpen(ep);
                           }}
                           aria-label={`Replay ${label} ${ep.side} ${signedUsd(ep.net)}`}
-                          className={`rounded-[4px] text-mini transition-colors duration-[120ms] ${
+                          className={`rounded-full px-2.5 py-1 text-mini font-medium transition-colors duration-150 ${
                             opening === ep.id
                               ? "text-accent"
-                              : "text-faint group-hover:text-accent-soft"
+                              : "text-faint group-hover:bg-accent-soft/15 group-hover:text-accent-soft"
                           }`}
                         >
                           {opening === ep.id ? "Drawing…" : "Watch →"}
@@ -707,7 +797,7 @@ function EpisodeTable({
       {visible < shown.length && (
         <button
           onClick={() => setVisible((v) => v + PAGE_ROWS)}
-          className="w-full border-t border-border py-2.5 text-mini text-muted transition-colors duration-[120ms] hover:bg-inset/40 hover:text-tx"
+          className="w-full border-t border-white/5 py-3 text-mini text-muted transition-colors duration-150 hover:bg-inset/40 hover:text-tx"
         >
           Show {Math.min(PAGE_ROWS, shown.length - visible)} more
         </button>
@@ -729,10 +819,10 @@ function Chip({
     <button
       onClick={onClick}
       aria-pressed={active}
-      className={`flex h-[28px] shrink-0 items-center gap-1.5 rounded-[6px] border px-2.5 text-mini transition-colors duration-[120ms] ${
+      className={`flex h-8 shrink-0 items-center gap-1.5 rounded-full px-3 text-mini font-medium transition-colors duration-150 ${
         active
-          ? "border-accent-soft text-tx"
-          : "border-border text-muted hover:border-muted hover:text-tx"
+          ? "bg-accent-soft text-accent-text"
+          : "border border-white/8 text-muted hover:border-white/16 hover:text-tx"
       }`}
     >
       {children}

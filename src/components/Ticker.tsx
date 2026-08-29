@@ -12,7 +12,7 @@ export function Ticker() {
 
   if (!board) {
     return (
-      <div className="h-[46px] shrink-0 overflow-hidden border-b border-border">
+      <div className="h-12 shrink-0 overflow-hidden border-b border-white/5">
         <div className="flex h-full items-center gap-7 px-4">
           {Array.from({ length: 12 }).map((_, i) => (
             <div key={i} className="hl-skeleton h-[16px] w-[124px] shrink-0" />
@@ -33,7 +33,7 @@ export function Ticker() {
 
   return (
     <div
-      className="group h-[46px] shrink-0 overflow-hidden border-b border-border"
+      className="group h-12 shrink-0 overflow-hidden border-b border-white/5 bg-ground/60"
       /* Fade both ends into the ground so items enter and leave rather than being cut. */
       style={{
         maskImage:
