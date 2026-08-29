@@ -1,7 +1,7 @@
 {
   "name": "runback",
   "version": "0.1.0",
-  "description": "Paste a Hyperliquid wallet, browse its trades, replay one as a video you can post.",
+  "description": "Paste a perp DEX wallet, browse its trades, replay one as a video you can post.",
   "license": "MIT",
   "private": true,
   "scripts": {

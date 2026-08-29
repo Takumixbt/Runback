@@ -11,6 +11,7 @@
 
 import type { Candle, Fill } from "./hl";
 import { returnOf } from "./format";
+import { kindOfAddress } from "./venue";
 
 export interface Episode {
   /** Stable across rebuilds: the coin and the opening fill's trade id. */
@@ -86,6 +87,12 @@ const FLAT = 1e-9;
  */
 const MAX_IDLE_MS = 6 * 3_600_000;
 
+function sameWallet(a: string, b: string): boolean {
+  const kind = kindOfAddress(a);
+  if (kind === "solana") return a === b;
+  return a.toLowerCase() === b.toLowerCase();
+}
+
 /**
  * Split one wallet's fills into episodes, best first.
  *
@@ -95,7 +102,7 @@ const MAX_IDLE_MS = 6 * 3_600_000;
  * The episode is marked `flipped` so the UI can say so.
  */
 export function episodes(all: Fill[], subject?: string): Episode[] {
-  const me = subject?.toLowerCase();
+  const me = subject;
   const byCoin = new Map<string, Fill[]>();
   for (const f of all) {
     const list = byCoin.get(f.coin);
@@ -207,7 +214,7 @@ export function episodes(all: Fill[], subject?: string): Episode[] {
        * been blown up itself. With no subject given, nothing is flagged, which is the safe
        * default: a wrong badge is worse than a missing one.
        */
-      if (f.liquidatedUser && me && f.liquidatedUser === me) cur.liquidated = true;
+      if (f.liquidatedUser && me && sameWallet(f.liquidatedUser, me)) cur.liquidated = true;
       if (f.dir.includes(">")) {
         cur.flipped = true;
         cur.side = "FLIP";
@@ -227,7 +234,7 @@ export function episodes(all: Fill[], subject?: string): Episode[] {
 
       if (Math.abs(pos) < FLAT) {
         // Flat, and the fill that got it there was forced: this is a blow-up.
-        cur.closedByLiquidation = f.liquidatedUser !== null && me !== undefined && f.liquidatedUser === me;
+        cur.closedByLiquidation = !!(f.liquidatedUser && me && sameWallet(f.liquidatedUser, me));
         cur.avgEntry = entryQty > 0 ? entryCost / entryQty : f.px;
         cur.net = cur.realized - cur.fees;
         out.push(cur);
@@ -357,7 +364,7 @@ export function whyNoWindow(start: number, end: number, now = Date.now()): strin
   const days = Math.round((now - start) / 86_400_000);
   const reachable = INTERVALS.find(({ sec }) => start >= now - MAX_CANDLES * sec * 1000);
   if (!reachable) {
-    return `opened ${days} days ago, which is past every interval Hyperliquid still serves`;
+    return `opened ${days} days ago, which is past every interval this venue still serves`;
   }
   return `spans too long to draw inside ${MAX_BARS} bars at any available interval`;
 }

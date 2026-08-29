@@ -5,6 +5,7 @@ import { Avatar } from "@/components/Avatar";
 import { CoinIcon } from "@/components/CoinIcon";
 import { traderCards, type Highlight } from "@/lib/traders";
 import { pct, signedUsd } from "@/lib/format";
+import { walletPath } from "@/lib/venue";
 
 /**
  * Rendered per request, not prerendered at build time.
@@ -52,7 +53,7 @@ async function Traders() {
           className="flex flex-col overflow-hidden rounded-[10px] border border-border transition-colors duration-[120ms] hover:border-muted"
         >
           <Link
-            href={`/w/${t.address}`}
+            href={walletPath("hyperliquid", t.address)}
             className="flex items-center gap-2.5 px-3.5 py-3 transition-colors duration-[120ms] hover:bg-inset/40"
           >
             <Avatar address={t.address} name={t.name} src={t.avatar} size={32} />
@@ -91,7 +92,7 @@ async function Traders() {
  */
 function Steps() {
   const steps = [
-    "Paste a wallet address",
+    "Paste a wallet on any of the books we read",
     "Pick a position from its list",
     "Watch it play out, export the clip",
   ];
@@ -138,7 +139,7 @@ function Trade({
   const tone = h.net >= 0 ? UP : DOWN;
   return (
     <Link
-      href={`/w/${wallet}?p=${encodeURIComponent(h.id)}`}
+      href={walletPath("hyperliquid", wallet, h.id)}
       className="group/cell flex flex-col gap-2 bg-ground px-3.5 py-2.5 transition-colors duration-[120ms] hover:bg-inset/40"
     >
       <div className="flex items-center gap-1.5">

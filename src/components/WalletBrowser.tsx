@@ -1,15 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { kindOf, labelFor, type Market } from "@/lib/hl";
+import { adapter } from "@/lib/venues";
 import {
-  candles as fetchCandles,
-  fills as fetchFills,
-  isAddress,
-  kindOf,
-  labelFor,
-  markets as fetchMarkets,
-  type Market,
-} from "@/lib/hl";
+  parseAccount,
+  VENUES,
+  venue as venueOf,
+  venueFits,
+  venuesFor,
+  walletPath,
+  type VenueId,
+} from "@/lib/venue";
 import {
   buildReplay,
   episodes as segment,
@@ -43,6 +45,18 @@ const FAINT = "#9aa3a48c";
 const SINCE = 0;
 const MAX_PAGES = 14;
 
+function failMessage(err: unknown, name: string): string {
+  const raw = err instanceof Error ? err.message : "";
+  if (raw.includes("429")) return `${name} rate-limited this browser. Give it a minute.`;
+  if (/\b401\b/.test(raw) || /\b403\b/.test(raw)) {
+    return `${name} will not publish this account's tape without a signature.`;
+  }
+  if (raw.includes("no account") || /account not found/i.test(raw)) {
+    return `No ${name} account for that address.`;
+  }
+  return `Could not reach ${name}. Check the address and try again.`;
+}
+
 type Phase =
   | { k: "idle" }
   /** Nothing on screen yet. */
@@ -55,11 +69,14 @@ type Phase =
 export function WalletBrowser({
   initial,
   position,
+  venue: venueId = "hyperliquid",
 }: {
   initial?: string;
   /** Episode id from the URL, opened as soon as the list containing it has loaded. */
   position?: string;
+  venue?: VenueId;
 }) {
+  const [picked, setPicked] = useState<VenueId>(venueId);
   const [address, setAddress] = useState(initial ?? "");
   const [phase, setPhase] = useState<Phase>({ k: "idle" });
   const [eps, setEps] = useState<Episode[]>([]);
@@ -69,18 +86,23 @@ export function WalletBrowser({
   const abort = useRef<AbortController | null>(null);
   /** The address the current results belong to, which is not always what is in the box. */
   const loaded = useRef<string>("");
+  const book = venueOf(picked)!;
+  const api = adapter(picked);
 
   useEffect(() => {
-    fetchMarkets()
+    adapter(picked)
+      .markets()
       .then(setMarkets)
       .catch(() => setMarkets(null));
-  }, []);
+  }, [picked]);
 
-  const load = useCallback(async (who: string) => {
+  const load = useCallback(async (who: string, on: VenueId = picked) => {
     abort.current?.abort();
     const ctl = new AbortController();
     abort.current = ctl;
     loaded.current = who;
+    const src = adapter(on);
+    const name = venueOf(on)?.name ?? on;
 
     setReplay(null);
     setEps([]);
@@ -95,7 +117,7 @@ export function WalletBrowser({
        * alternative was several seconds of skeleton on a wallet like Wynn's for no reason
        * other than that the loop had not finished.
        */
-      const raw = await fetchFills(who, SINCE, Date.now(), {
+      const raw = await src.fills(who, SINCE, Date.now(), {
         signal: ctl.signal,
         maxPages: MAX_PAGES,
         onPage: (soFar) => {
@@ -109,31 +131,27 @@ export function WalletBrowser({
       setPhase({ k: "ready" });
     } catch (err) {
       if (ctl.signal.aborted) return;
-      setPhase({
-        k: "error",
-        message:
-          err instanceof Error && err.message.includes("429")
-            ? "Hyperliquid rate-limited this browser. Give it a minute."
-            : "Could not reach Hyperliquid. Check the address and try again.",
-      });
+      setPhase({ k: "error", message: failMessage(err, name) });
     }
-  }, []);
+  }, [picked]);
 
   const submit = useCallback(
     (e: React.FormEvent) => {
       e.preventDefault();
-      const who = address.trim().toLowerCase();
-      if (!isAddress(who)) {
+      const acc = parseAccount(address);
+      if (!acc) {
         setPhase({
           k: "error",
-          message: "That is not a Hyperliquid address. It starts 0x and is 42 characters.",
+          message: "Paste a 0x, a Solana address, or a dydx1 account.",
         });
         return;
       }
-      window.history.replaceState(null, "", `/w/${who}`);
-      void load(who);
+      const dest = venueFits(picked, acc.canonical) ? picked : acc.defaultVenue;
+      if (dest !== picked) setPicked(dest);
+      window.history.replaceState(null, "", walletPath(dest, acc.canonical));
+      void load(acc.canonical, dest);
     },
-    [address, load],
+    [address, load, picked],
   );
 
   /**
@@ -149,11 +167,11 @@ export function WalletBrowser({
       if (!w) return;
       setOpening(ep.id);
       try {
-        const bars = await fetchCandles(ep.coin, w.interval, w.from, w.to);
+        const bars = await api.candles(ep.coin, w.interval, w.from, w.to);
         if (bars.length < MIN_BARS) {
           setPhase({
             k: "error",
-            message: `Hyperliquid returned ${bars.length} bars for that window. It is outside what the API still serves.`,
+            message: `${book.name} returned ${bars.length} bars for that window. It is outside what the API still serves.`,
           });
           return;
         }
@@ -166,7 +184,7 @@ export function WalletBrowser({
         setOpening(null);
       }
     },
-    [markets],
+    [markets, api, book.name],
   );
 
   /**
@@ -194,7 +212,7 @@ export function WalletBrowser({
   }, [position, eps, open]);
 
   useEffect(() => {
-    if (initial && isAddress(initial)) void load(initial.toLowerCase());
+    if (initial && parseAccount(initial)) void load(initial, venueId);
     // Mount only, and only when the route carried an address.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -214,6 +232,11 @@ export function WalletBrowser({
           trade is what produced "Cannot update oldest data": a cursor left at bar 400
           talking to a series that had just been rebuilt from scratch.
         */}
+        {picked === "jupiter" && (
+          <p className="text-mini text-faint">
+            Fills are Jupiter&apos;s. Bars are Hyperliquid&apos;s book for the same asset.
+          </p>
+        )}
         <Replay key={`${replay.coin}-${replay.candles[0]?.t ?? 0}`} data={replay} />
       </div>
     );
@@ -223,11 +246,31 @@ export function WalletBrowser({
   const streaming = phase.k === "streaming";
   /** On a wallet route the address is already in the nav, so the hero form is redundant. */
   const showForm = !initial;
+  const typed = parseAccount(address);
+  const chipVenues = typed ? venuesFor(typed.kind) : VENUES;
 
   return (
     <div className="flex flex-col gap-3">
       {showForm && (
-        <form onSubmit={submit} className="flex flex-col gap-2 sm:flex-row">
+        <form onSubmit={submit} className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center gap-1">
+            {chipVenues.map((v) => (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => setPicked(v.id)}
+                aria-pressed={picked === v.id}
+                className={`h-[28px] rounded-[6px] border px-2.5 text-mini transition-colors duration-[120ms] ${
+                  picked === v.id
+                    ? "border-accent-soft text-tx"
+                    : "border-border text-faint hover:border-muted hover:text-muted"
+                }`}
+              >
+                {v.name}
+              </button>
+            ))}
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row">
           <div className="flex h-[42px] flex-1 items-center gap-2.5 rounded-[8px] border border-border px-3.5 transition-colors duration-[120ms] focus-within:border-accent-soft hover:border-muted">
             <svg
               viewBox="0 0 16 16"
@@ -242,11 +285,16 @@ export function WalletBrowser({
             </svg>
             <input
               value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              placeholder="Search any Hyperliquid address"
+              onChange={(e) => {
+                const next = e.target.value;
+                setAddress(next);
+                const acc = parseAccount(next);
+                if (acc && !venueFits(picked, acc.canonical)) setPicked(acc.defaultVenue);
+              }}
+              placeholder={book.placeholder}
               spellCheck={false}
               autoComplete="off"
-              aria-label="Hyperliquid address"
+              aria-label="Wallet address"
               className="min-w-0 flex-1 bg-transparent text-read text-tx outline-none placeholder:text-faint"
             />
           </div>
@@ -257,6 +305,7 @@ export function WalletBrowser({
           >
             {busy ? "Loading" : "Search"}
           </button>
+          </div>
         </form>
       )}
 
