@@ -1,11 +1,3 @@
-/**
- * The one box this app draws.
- *
- * Hyperliquid's terminal is built almost entirely from these: a 1px border in the border
- * token over the page ground, a low header strip carrying a small label and an optional
- * right-hand aside, and content below. No shadows, no filled cards, no nesting. Getting
- * this one primitive right is most of what makes a page read as theirs.
- */
 export function Panel({
   label,
   aside,
@@ -19,29 +11,23 @@ export function Panel({
   children: React.ReactNode;
   className?: string;
   bodyClassName?: string;
-  /** Content sits against the border, for tables and charts that supply their own padding. */
   flush?: boolean;
 }) {
   return (
-    <section
-      className={`flex min-w-0 flex-col overflow-hidden rounded-[8px] border border-border bg-ground ${className}`}
-    >
+    <section className={`rb-card flex min-w-0 flex-col overflow-hidden ${className}`}>
       {(label || aside) && (
-        <header className="flex h-[34px] shrink-0 items-center justify-between gap-3 border-b border-border px-3">
+        <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-white/5 px-5">
           {label && (
-            <span className="text-micro tracking-[0.08em] text-faint">{label}</span>
+            <span className="text-micro font-medium tracking-[0.14em] text-faint">{label}</span>
           )}
           {aside && <div className="flex items-center gap-2 text-mini">{aside}</div>}
         </header>
       )}
-      <div className={`min-w-0 flex-1 ${flush ? "" : "p-3"} ${bodyClassName}`}>
-        {children}
-      </div>
+      <div className={`min-w-0 flex-1 ${flush ? "" : "p-4"} ${bodyClassName}`}>{children}</div>
     </section>
   );
 }
 
-/** A label over a figure, the unit Hyperliquid's summary strips are made of. */
 export function Metric({
   label,
   value,
@@ -50,15 +36,14 @@ export function Metric({
 }: {
   label: string;
   value: string;
-  /** Signed number driving the colour. Omit for neutral. */
   tone?: number;
   sub?: string;
 }) {
   const color = tone === undefined ? "#f6fefd" : tone >= 0 ? "#50d2c1" : "#ed7088";
   return (
-    <div className="flex min-w-0 flex-col justify-center gap-1.5 bg-ground px-3.5 py-3.5">
-      <span className="truncate text-micro tracking-[0.08em] text-faint">{label}</span>
-      <span className="truncate text-lead leading-none tabular-nums" style={{ color }}>
+    <div className="flex min-w-0 flex-col justify-center gap-2.5 bg-[#101c21] px-5 py-5">
+      <span className="truncate text-micro font-medium tracking-[0.14em] text-faint">{label}</span>
+      <span className="truncate text-[1.35rem] font-medium leading-none tabular-nums" style={{ color }}>
         {value}
       </span>
       {sub && <span className="truncate text-micro text-faint">{sub}</span>}

@@ -7,14 +7,6 @@ import { traderCards, type Highlight } from "@/lib/traders";
 import { pct, signedUsd } from "@/lib/format";
 import { walletPath } from "@/lib/venue";
 
-/**
- * Rendered per request, not prerendered at build time.
- *
- * The trader read is six wallets walked page by page against a rate limit, which took
- * longer than the 60-second prerender budget and failed the build. Dynamic means the shell
- * ships immediately and the Suspense boundary streams the table in when it lands;
- * `unstable_cache` still means one visitor a few minutes pays for it.
- */
 export const dynamic = "force-dynamic";
 
 const UP = "#50d2c1";
@@ -22,14 +14,43 @@ const DOWN = "#ed7088";
 
 export default function Home() {
   return (
-    <main className="mx-auto flex w-full max-w-[1120px] flex-col gap-5 px-4 py-7">
-      <WalletBrowser />
+    <main className="mx-auto flex w-full max-w-[1160px] flex-col gap-14 px-4 pb-20 pt-8 sm:pt-12">
+      <section className="flex flex-col items-center text-center">
+        <p className="rb-kicker mb-4">Paste a wallet · replay the tape</p>
+        <h1 className="max-w-[12ch] text-[clamp(2.4rem,5.5vw,3.6rem)] font-medium leading-[1.02] tracking-[-0.05em] text-title">
+          Run it back.
+        </h1>
+        <p className="mt-4 max-w-[34rem] text-pretty text-lead leading-relaxed text-muted">
+          Every position on the books that actually publish a tape, replayed as a clip
+          you can watch and post. No key. No account.
+        </p>
+        <div className="mt-7 w-full max-w-[740px] text-left">
+          <WalletBrowser />
+          <p className="mt-3 px-1 text-center text-mini leading-relaxed text-faint">
+            RiseX takes the same 0x as Hyperliquid and Lighter — three books, not one.
+            Aster and Extended keep user history behind a key, so they are not here.
+          </p>
+        </div>
+      </section>
 
       <Steps />
 
-      <Suspense fallback={<TradersSkeleton />}>
-        <Traders />
-      </Suspense>
+      <section className="flex flex-col gap-4">
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <p className="rb-kicker mb-2">Gallery</p>
+            <h2 className="text-head font-medium tracking-[-0.03em] text-title">
+              On Hyperliquid right now
+            </h2>
+          </div>
+          <p className="hidden max-w-[16rem] text-right text-mini leading-relaxed text-faint sm:block">
+            Best and worst closed positions on record. Tap a number to watch that trade.
+          </p>
+        </div>
+        <Suspense fallback={<TradersSkeleton />}>
+          <Traders />
+        </Suspense>
+      </section>
     </main>
   );
 }
@@ -39,41 +60,34 @@ async function Traders() {
   try {
     cards = await traderCards();
   } catch {
-    // A throttled read is discarded rather than cached; the next request retries.
     return null;
   }
   const live = cards.filter((c) => c.best || c.worst);
   if (live.length === 0) return null;
 
   return (
-    <div className="hl-fade grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
       {live.map((t) => (
-        <div
-          key={t.address}
-          className="flex flex-col overflow-hidden rounded-[10px] border border-border transition-colors duration-[120ms] hover:border-muted"
-        >
+        <div key={t.address} className="rb-card rb-card-hover flex flex-col overflow-hidden">
           <Link
             href={walletPath("hyperliquid", t.address)}
-            className="flex items-center gap-2.5 px-3.5 py-3 transition-colors duration-[120ms] hover:bg-inset/40"
+            className="flex items-center gap-3 px-4 py-3.5"
           >
-            <Avatar address={t.address} name={t.name} src={t.avatar} size={32} />
+            <Avatar address={t.address} name={t.name} src={t.avatar} size={40} />
             <span className="flex min-w-0 flex-col gap-1">
-              <span className="truncate text-read leading-none text-title">{t.name}</span>
+              <span className="truncate text-lead font-medium leading-none text-title">
+                {t.name}
+              </span>
               {t.handle && (
-                <span className="truncate text-mini leading-none text-faint">
-                  @{t.handle}
-                </span>
+                <span className="truncate text-mini leading-none text-faint">@{t.handle}</span>
               )}
             </span>
-            <span className="ml-auto shrink-0 text-mini text-faint">{t.positions}</span>
+            <span className="ml-auto shrink-0 rounded-full bg-inset/80 px-2 py-0.5 text-micro text-faint">
+              {t.positions}
+            </span>
           </Link>
 
-          {/*
-            Each cell links at its OWN position, not at the wallet.
-            Landing on a list of sixty and hunting for the number you just read is not
-            "watch this trade", which is what the card is offering.
-          */}
-          <div className="grid grid-cols-2 gap-px border-t border-border bg-border">
+          <div className="grid grid-cols-2 gap-px border-t border-white/5 bg-white/5">
             <Trade tag="BEST" h={t.best} wallet={t.address} />
             <Trade tag="WORST" h={t.worst} wallet={t.address} />
           </div>
@@ -83,41 +97,25 @@ async function Traders() {
   );
 }
 
-/**
- * How the site works, in three moves.
- *
- * Not the paragraph that was here before. A visitor landing on an input box and a grid of
- * strangers has no way to know what happens when they press the button, and the answer is
- * short enough to fit on one line, so it goes on one line.
- */
 function Steps() {
   const steps = [
-    "Paste a wallet on any of the books we read",
-    "Pick a position from its list",
-    "Watch it play out, export the clip",
+    { n: "01", title: "Paste", body: "A 0x, a Solana key, or dydx1. Pick the book if it lives on more than one." },
+    { n: "02", title: "Pick", body: "The catalogue is positions, not tokens. Best, worst, biggest, or one market." },
+    { n: "03", title: "Watch", body: "The tape plays, then you export an MP4. Same clip on every machine." },
   ];
   return (
-    <ol className="flex flex-col gap-px overflow-hidden rounded-[8px] border border-border bg-border sm:flex-row">
-      {steps.map((text, i) => (
-        <li
-          key={text}
-          className="flex flex-1 items-center gap-2.5 bg-ground px-3.5 py-2.5 text-mini text-muted"
-        >
-          <span className="grid h-[18px] w-[18px] shrink-0 place-items-center rounded-full border border-border text-micro text-faint">
-            {i + 1}
-          </span>
-          {text}
+    <ol className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      {steps.map((s) => (
+        <li key={s.n} className="rb-card flex flex-col gap-3 px-4 py-4">
+          <span className="text-micro font-medium tracking-[0.16em] text-accent-soft">{s.n}</span>
+          <span className="text-lead font-medium text-title">{s.title}</span>
+          <span className="text-body leading-relaxed text-muted">{s.body}</span>
         </li>
       ))}
     </ol>
   );
 }
 
-/**
- * One side of a card. Which side is fixed, not derived from the sign: the left cell is the
- * highest net and the right is the lowest, so a wallet with no losing position shows an
- * empty cell rather than two winners.
- */
 function Trade({
   tag,
   h,
@@ -129,8 +127,8 @@ function Trade({
 }) {
   if (!h) {
     return (
-      <div className="flex flex-col gap-2 bg-ground px-3.5 py-2.5">
-        <span className="text-micro tracking-[0.12em] text-faint">{tag}</span>
+      <div className="flex flex-col gap-2 bg-ground/40 px-4 py-3.5">
+        <span className="text-micro tracking-[0.14em] text-faint">{tag}</span>
         <span className="text-mini text-faint">&ndash;</span>
       </div>
     );
@@ -140,30 +138,30 @@ function Trade({
   return (
     <Link
       href={walletPath("hyperliquid", wallet, h.id)}
-      className="group/cell flex flex-col gap-2 bg-ground px-3.5 py-2.5 transition-colors duration-[120ms] hover:bg-inset/40"
+      className="group/cell flex flex-col gap-2.5 bg-ground/40 px-4 py-3.5 transition-colors duration-150 hover:bg-inset/50"
     >
       <div className="flex items-center gap-1.5">
-        <span className="text-micro tracking-[0.12em] text-faint">{tag}</span>
+        <span className="text-micro tracking-[0.14em] text-faint">{tag}</span>
         {h.liquidated && (
-          <span className="text-micro tracking-[0.12em] text-error">LIQ</span>
+          <span className="text-micro tracking-[0.14em] text-error">LIQ</span>
         )}
       </div>
 
       <div className="flex items-baseline gap-1.5">
-        <span className="text-lead leading-none tabular-nums" style={{ color: tone }}>
+        <span className="text-[1.15rem] font-medium leading-none tabular-nums" style={{ color: tone }}>
           {signedUsd(h.net)}
         </span>
         {h.roe !== null && <span className="text-micro text-faint">{pct(h.roe)}</span>}
       </div>
 
       <div className="flex items-center gap-1.5">
-        <CoinIcon coin={h.coin} label={h.label} size={13} />
+        <CoinIcon coin={h.coin} label={h.label} size={14} />
         <span className="min-w-0 truncate text-mini text-muted">{h.label}</span>
         <span className="shrink-0 text-micro tracking-[0.08em]" style={{ color: tone }}>
           {h.side}
         </span>
-        <span className="ml-auto shrink-0 text-micro text-faint opacity-0 transition-opacity duration-[120ms] group-hover/cell:opacity-100">
-          Watch &rarr;
+        <span className="ml-auto shrink-0 text-micro text-accent-soft opacity-0 transition-opacity duration-150 group-hover/cell:opacity-100">
+          Watch
         </span>
       </div>
     </Link>
@@ -172,9 +170,9 @@ function Trade({
 
 function TradersSkeleton() {
   return (
-    <div className="grid grid-cols-1 gap-2.5 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
       {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="hl-skeleton h-[118px] rounded-[10px]" />
+        <div key={i} className="hl-skeleton h-[148px] rounded-[14px]" />
       ))}
     </div>
   );

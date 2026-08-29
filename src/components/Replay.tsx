@@ -682,7 +682,7 @@ export function Replay({ data }: { data: ReplayData }) {
             className="min-w-0"
           >
             {/* The market header, the way the terminal sits one above its chart. */}
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-3 py-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 px-4 py-3.5">
               <div className="flex items-center gap-2.5">
                 <CoinIcon coin={data.coin} label={data.label} size={20} />
                 <span className="text-lead leading-none text-title">{data.label}</span>
@@ -719,7 +719,7 @@ export function Replay({ data }: { data: ReplayData }) {
             </div>
 
             <div className="relative">
-              <div ref={priceRef} className="h-[330px] w-full sm:h-[420px]" />
+              <div ref={priceRef} className="h-[360px] w-full sm:h-[460px]" />
 
               <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1.5">
                 {recent.map((f) => (
@@ -803,14 +803,14 @@ export function Replay({ data }: { data: ReplayData }) {
             </div>
 
             {/* ------------------------------------------------- transport */}
-            <div className="flex flex-wrap items-center gap-2 border-t border-border px-3 py-2.5">
+            <div className="flex flex-wrap items-center gap-2 border-t border-white/5 px-4 py-3">
               {/*
                 A transport, in the order a transport goes.
                 The old row had one button that changed its own meaning depending on where
                 the playhead was, so there was no way to go back to the start without
                 dragging the scrubber to zero and guessing. Restart, step, play, step.
               */}
-              <div className="flex items-center gap-0.5 rounded-[8px] border border-border p-0.5">
+              <div className="flex items-center gap-0.5 rounded-full border border-white/8 bg-inset/30 p-1">
                 <Ctl onClick={restart} label="Restart" hint="R">
                   <SkipIcon />
                 </Ctl>
@@ -834,17 +834,17 @@ export function Replay({ data }: { data: ReplayData }) {
               <div
                 role="group"
                 aria-label="Playback speed"
-                className="grid h-[30px] grid-cols-4 items-stretch overflow-hidden rounded-[8px] border border-border"
+                className="grid h-8 grid-cols-4 items-stretch overflow-hidden rounded-full border border-white/8 bg-inset/30 p-[3px]"
               >
                 {SPEEDS.map((sp) => (
                   <button
                     key={sp}
                     onClick={() => setSpeed(sp)}
                     aria-pressed={speed === sp}
-                    className={`w-[36px] text-mini leading-none transition-colors duration-[120ms] ${
+                    className={`w-[36px] rounded-full text-mini leading-none transition-colors duration-150 ${
                       speed === sp
-                        ? "bg-inset text-tx"
-                        : "text-faint hover:bg-inset/40 hover:text-muted"
+                        ? "bg-accent-soft text-accent-text"
+                        : "text-faint hover:text-tx"
                     }`}
                   >
                     {sp}&times;
@@ -856,7 +856,7 @@ export function Replay({ data }: { data: ReplayData }) {
                 onClick={toggleMute}
                 title={muted ? "Unmute (M)" : "Mute (M)"}
                 aria-label={muted ? "Unmute" : "Mute"}
-                className={`grid h-[30px] w-[30px] place-items-center rounded-[8px] border border-border transition-colors duration-[120ms] hover:border-muted ${
+                className={`grid h-8 w-8 place-items-center rounded-full border border-white/8 transition-colors duration-150 hover:border-white/16 ${
                   muted ? "text-faint" : "text-accent"
                 }`}
               >
@@ -1000,10 +1000,10 @@ function Ctl({
       onClick={onClick}
       title={`${label} (${hint})`}
       aria-label={label}
-      className={`grid h-[26px] place-items-center rounded-[6px] transition-colors duration-[120ms] ${
+      className={`grid h-7 place-items-center rounded-full transition-colors duration-150 ${
         primary
-          ? "w-[38px] bg-accent-soft text-accent-text hover:brightness-105"
-          : "w-[30px] text-muted hover:bg-inset hover:text-tx"
+          ? "w-10 bg-accent-soft text-accent-text hover:brightness-105"
+          : "w-8 text-muted hover:bg-inset hover:text-tx"
       }`}
     >
       {children}
@@ -1115,14 +1115,14 @@ function Export({ data }: { data: ReplayData }) {
   return (
     <Panel label="EXPORT">
       <div className="flex flex-col gap-2.5">
-        <div className="grid grid-cols-3 gap-0.5 rounded-[8px] border border-border p-0.5">
+        <div className="grid grid-cols-3 gap-0.5 rounded-full border border-white/8 bg-inset/30 p-1">
           {(Object.keys(FORMATS) as Shape[]).map((s) => (
             <button
               key={s}
               onClick={() => setShape(s)}
               disabled={busy}
-              className={`rounded-[6px] py-1 text-mini transition-colors duration-[120ms] ${
-                shape === s ? "bg-inset text-tx" : "text-faint hover:text-muted"
+              className={`rounded-full py-1.5 text-mini font-medium transition-colors duration-150 ${
+                shape === s ? "bg-accent-soft text-accent-text" : "text-faint hover:text-tx"
               }`}
             >
               {FORMATS[s].label}
@@ -1132,7 +1132,7 @@ function Export({ data }: { data: ReplayData }) {
 
         <button
           onClick={busy ? () => (cancelled.current = true) : run}
-          className="h-[30px] rounded-[8px] border border-border text-mini text-tx transition-colors duration-[120ms] hover:border-accent-soft hover:text-accent"
+          className="h-10 rounded-full bg-accent-soft text-body font-medium text-accent-text transition-[filter] duration-150 hover:brightness-110"
         >
           {busy ? `Cancel · ${Math.round(progress * 100)}%` : "Export MP4"}
         </button>

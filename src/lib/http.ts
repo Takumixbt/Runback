@@ -2,10 +2,10 @@
  * Fetch a venue URL, from the browser if CORS allows, otherwise through our proxy.
  *
  * Hyperliquid answers `access-control-allow-origin: *`, so the visitor's own IP
- * spends the quota. Lighter and dYdX and Jupiter do the same. Pacifica does not:
- * Node can read it, the browser cannot, and a failed CORS check looks like a
- * network error. The same-origin `/api/x/{venue}` route is the fallback for that
- * case, and only that case — we try the real host first.
+ * spends the quota. Lighter and dYdX and Jupiter do the same. Pacifica and RiseX
+ * do not: Node can read them, the browser often cannot, and a failed CORS check
+ * looks like a network error. The same-origin `/api/x/{venue}` route is the
+ * fallback for that case, and only that case — we try the real host first.
  *
  * The proxy still shares one server IP. That is the Hyperliquid-scaling problem
  * we refuse for the book everybody actually uses. For the others it is how they
@@ -17,6 +17,7 @@ import type { VenueId } from "./venue";
 export const ORIGIN: Record<VenueId, string> = {
   hyperliquid: "https://api.hyperliquid.xyz",
   lighter: "https://mainnet.zklighter.elliot.ai",
+  risex: "https://api.rise.trade",
   dydx: "https://indexer.dydx.trade",
   drift: "https://data.velocity.exchange",
   pacifica: "https://api.pacifica.fi",
