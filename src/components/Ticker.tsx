@@ -12,10 +12,10 @@ export function Ticker() {
 
   if (!board) {
     return (
-      <div className="h-12 shrink-0 overflow-hidden border-b border-white/5">
+      <div className="h-11 shrink-0 overflow-hidden border-b border-white/[0.06]">
         <div className="flex h-full items-center gap-7 px-4">
           {Array.from({ length: 12 }).map((_, i) => (
-            <div key={i} className="hl-skeleton h-[16px] w-[124px] shrink-0" />
+            <div key={i} className="hl-skeleton h-3.5 w-24 shrink-0" />
           ))}
         </div>
       </div>
@@ -33,8 +33,7 @@ export function Ticker() {
 
   return (
     <div
-      className="group h-12 shrink-0 overflow-hidden border-b border-white/5 bg-ground/60"
-      /* Fade both ends into the ground so items enter and leave rather than being cut. */
+      className="group h-11 shrink-0 overflow-hidden border-b border-white/[0.06]"
       style={{
         maskImage:
           "linear-gradient(to right, transparent, black 40px, black calc(100% - 40px), transparent)",
@@ -48,18 +47,18 @@ export function Ticker() {
           return (
             <div
               key={`${m.coin}-${i}`}
-              className="flex shrink-0 items-center gap-2 text-body leading-none"
+              className="flex shrink-0 items-center gap-2 text-mini leading-none"
               aria-hidden={i >= board.marks.length}
             >
-              <CoinIcon coin={m.coin} label={m.label} size={18} />
-              <span className="text-tx">{m.label}</span>
+              <CoinIcon coin={m.coin} label={m.label} size={15} />
+              <span className="text-muted">{m.label}</span>
               <span
-                className="tabular-nums transition-colors duration-300"
-                style={{ color: lit === "up" ? UP : lit === "down" ? DOWN : "#9aa3a4" }}
+                className="transition-colors duration-300"
+                style={{ color: lit === "up" ? UP : lit === "down" ? DOWN : "#f6fefd" }}
               >
                 {price(m.px)}
               </span>
-              <span className="tabular-nums" style={{ color: m.change >= 0 ? UP : DOWN }}>
+              <span style={{ color: m.change >= 0 ? UP : DOWN }}>
                 {m.change >= 0 ? "+" : "−"}
                 {(Math.abs(m.change) * 100).toFixed(2)}%
               </span>

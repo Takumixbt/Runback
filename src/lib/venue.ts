@@ -5,7 +5,8 @@
  * closedPnl, CORS *, 0x addresses. Everything else is mapped onto that shape.
  * A venue is in this list only if a visitor can paste an identity and get history
  * without signing. Aster is not here. Variational is not here. Extended is
- * not here: user trades want an API key.
+ * not here: user trades want an API key. Tread.fi is not here: it is an OEMS
+ * in front of other books, and history is behind an API token.
  *
  * The URL is `/w/{venue}/{wallet}` so a clip stays on the book it was taken from.
  * `/w/0x…` still works: it redirects to Hyperliquid, which is what every existing
@@ -86,7 +87,7 @@ export const VENUES: readonly Venue[] = [
     short: "JUP",
     chain: "Solana",
     kind: "solana",
-    explorer: (w) => `https://jup.ag/perps`,
+    explorer: (w) => `https://solscan.io/account/${w}`,
     placeholder: "Solana address",
   },
   {
@@ -100,7 +101,7 @@ export const VENUES: readonly Venue[] = [
   },
 ];
 
-export const VENUE_IDS: VenueId[] = VENUES.map((v) => v.id);
+const VENUE_IDS: VenueId[] = VENUES.map((v) => v.id);
 
 export function isVenueId(v: string): v is VenueId {
   return (VENUE_IDS as string[]).includes(v);
@@ -113,12 +114,6 @@ export function venue(id: string): Venue | null {
 export function venuesFor(kind: AddressKind): Venue[] {
   return VENUES.filter((v) => v.kind === kind);
 }
-
-export const KIND_LABEL: Record<AddressKind, string> = {
-  evm: "EVM",
-  solana: "Solana",
-  dydx: "dYdX",
-};
 
 const EVM = /^0x[0-9a-fA-F]{40}$/;
 const DYDX = /^dydx1[a-z0-9]{38,}$/;
@@ -162,4 +157,10 @@ export function venueFits(id: VenueId, wallet: string): boolean {
   const v = venue(id);
   const kind = kindOfAddress(wallet);
   return !!v && kind === v.kind;
+}
+
+/** Solana keys are case-sensitive. EVM and dYdX are not. */
+export function sameIdentity(a: string, b: string): boolean {
+  if (kindOfAddress(a) === "solana" || kindOfAddress(b) === "solana") return a === b;
+  return a.toLowerCase() === b.toLowerCase();
 }

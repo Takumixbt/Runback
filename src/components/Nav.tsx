@@ -32,19 +32,17 @@ export function Nav() {
   };
 
   return (
-    <nav className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-white/5 bg-ground/75 px-4 backdrop-blur-xl sm:px-5">
-      <Link href="/" className="flex items-center gap-2.5">
-        <Logo size={24} />
-        <span className="text-[18px] font-medium leading-none tracking-[-0.04em] text-title">
-          Runback
-        </span>
+    <nav className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-white/[0.06] bg-ground/80 px-4 backdrop-blur-xl sm:px-6">
+      <Link href="/" className="rb-press flex h-11 items-center gap-2.5 rounded-sm">
+        <Logo size={22} />
+        <span className="text-[15px] font-medium tracking-tight text-title">Runback</span>
       </Link>
 
       {!onHome && (
         <form onSubmit={submit} className="flex min-w-0 flex-1 justify-end">
           <div
-            className={`flex h-10 w-full max-w-[420px] items-center gap-2 rounded-full border bg-inset/35 pl-3.5 pr-1 transition-colors duration-150 focus-within:border-accent-soft/60 ${
-              bad ? "border-error" : "border-white/8 hover:border-white/16"
+            className={`flex h-11 w-full max-w-[440px] items-center gap-2.5 rounded-full border bg-raise/70 pl-4 pr-1 transition-[border-color,box-shadow] duration-150 ease-[cubic-bezier(0.2,0,0,1)] focus-within:border-mint-soft/50 focus-within:shadow-[var(--glow-focus)] ${
+              bad ? "border-loss/60" : "border-white/10 hover:border-white/20"
             }`}
           >
             <svg
@@ -69,11 +67,11 @@ export function Nav() {
               autoComplete="off"
               aria-label="Look up a wallet"
               aria-invalid={bad}
-              className="min-w-0 flex-1 bg-transparent text-read text-tx outline-none placeholder:text-faint"
+              className="min-w-0 flex-1 bg-transparent text-body text-tx outline-none placeholder:text-faint"
             />
             <button
               type="submit"
-              className="h-8 shrink-0 rounded-full bg-accent-soft px-3.5 text-mini font-medium text-accent-text transition-[filter] duration-150 hover:brightness-110"
+              className="rb-press h-9 shrink-0 rounded-full bg-mint-soft px-4 text-mini font-medium text-mint-text hover:brightness-110"
             >
               Open
             </button>

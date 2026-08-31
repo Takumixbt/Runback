@@ -1,15 +1,20 @@
 /**
  * Prove the pipeline against a live wallet, without a browser.
  *
- * Run with:  node --experimental-strip-types scripts/check.ts [address]
+ * Run with:  npm run check -- [address]
+ *
+ * Through `tsx` rather than bare `node --experimental-strip-types`, which strips types
+ * but still resolves modules as plain ESM: it cannot follow the extensionless relative
+ * imports or the `@/` alias the rest of `src/lib` is written with, so it never got past
+ * the first import.
  *
  * Exists because every interesting failure in this app is a data failure: an episode that
  * never closes, a window the candle endpoint silently refuses, a fill counted twice. None
  * of those are visible from a screenshot, and all of them are visible here.
  */
 
-import { candles, fills, isAddress, labelFor, markets, recentTrades } from "../src/lib/hl.ts";
-import { buildReplay, episodes, pickWindow, whyNoWindow } from "../src/lib/episodes.ts";
+import { candles, fills, isAddress, labelFor, markets, recentTrades } from "@/lib/hl";
+import { buildReplay, episodes, pickWindow, whyNoWindow } from "@/lib/episodes";
 
 const pad = (s: string, n: number) => s.padEnd(n).slice(0, n);
 const rpad = (s: string, n: number) => s.padStart(n);
@@ -30,11 +35,13 @@ async function main() {
   const known = await markets();
   const now = Date.now();
   const raw = await fills(who, now - 7 * 86_400_000, now, {
-    onPage: (t) => process.stdout.write(`\rreading fills… ${t}`),
+    // `onPage` hands over the fills themselves, not a count, so a caller can render
+    // what it has. Interpolating the array printed a screenful of [object Object].
+    onPage: (t) => process.stdout.write(`\rreading fills… ${t.length}`),
   });
   process.stdout.write("\r");
 
-  const eps = episodes(raw);
+  const eps = episodes(raw, who);
   const coins = new Set(raw.map((f) => f.coin));
 
   console.log(`wallet   ${who}`);
@@ -78,7 +85,7 @@ async function main() {
 
   const w = pickWindow(best.start, best.end, now)!;
   const bars = await candles(best.coin, w.interval, w.from, w.to);
-  const replay = buildReplay(best, bars, labelFor(best.coin, known), who, w.interval);
+  const replay = buildReplay(best, bars, labelFor(best.coin, known), who, w.interval, "hyperliquid");
 
   console.log(`\n--- ${replay.label} ${replay.side} ---`);
   console.log(`bars       ${replay.candles.length} x ${replay.interval}`);
@@ -87,7 +94,7 @@ async function main() {
   console.log(`realized   ${money(replay.realized)}`);
   console.log(`fees       ${money(-replay.fees)}`);
   console.log(`net        ${money(replay.net)}`);
-  console.log(`return     ${(replay.roe * 100).toFixed(2)}%`);
+  console.log(`return     ${replay.roe === null ? "n/a" : `${(replay.roe * 100).toFixed(2)}%`}`);
   console.log(`best/worst ${money(replay.peak)} / ${money(replay.trough)}`);
 
   /**

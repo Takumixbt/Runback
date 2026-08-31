@@ -14,8 +14,16 @@
 
 export const INFO = "https://api.hyperliquid.xyz/info";
 
-/** Every numeric field on this API is a decimal string. Parse at the boundary, once. */
-const n = (v: unknown): number => (typeof v === "number" ? v : Number(v ?? 0));
+/**
+ * Every numeric field on this API is a decimal string. Parse at the boundary, once.
+ *
+ * Non-finite parses become 0: one NaN reaching a running total turns a whole
+ * episode's PnL and drawdown into NaN, which renders as nothing at all.
+ */
+const n = (v: unknown): number => {
+  const x = typeof v === "number" ? v : Number(v ?? 0);
+  return Number.isFinite(x) ? x : 0;
+};
 
 async function info<T>(body: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(INFO, {
@@ -144,7 +152,9 @@ export async function fills(
       { type: "userFillsByTime", user, startTime: cursor, endTime, aggregateByTime: true },
       opts.signal,
     );
-    if (!page.length) break;
+    // A rejected read answers 200 with an error object, not an array. Reading
+    // `.length` off that throws a TypeError instead of ending the walk.
+    if (!Array.isArray(page) || !page.length) break;
     for (const f of page) out.push(parseFill(f));
     opts.onPage?.(out);
     if (page.length < PAGE) break;

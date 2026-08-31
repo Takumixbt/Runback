@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch makes the older run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify on Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor declared in package.json engines, and current.
+        node: [20, 22]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  # `npm run check` is deliberately NOT in CI. It reads a live wallet off
+  # Hyperliquid, so it fails on their rate limit rather than on our code, and a
+  # red tick that means "somebody else was busy" trains people to ignore red ticks.

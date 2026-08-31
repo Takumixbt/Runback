@@ -56,16 +56,31 @@ export function fillsFromLegs(legs: Leg[], subject?: string): Fill[] {
     const before = state.qty;
     const signed = leg.buy ? leg.sz : -leg.sz;
     const after = before + signed;
-    const reducing = Math.abs(after) < Math.abs(before) - FLAT;
+    /**
+     * One fill can cross zero: long 10, sell 25, now short 15.
+     *
+     * That is two events wearing one print. It closes the whole held side at this
+     * price and opens the remainder on the other side at the same price. Judged only
+     * by size it looks like growth, `|after| > |before|`, so it used to take the
+     * adding branch: the close realised nothing and the new short inherited a cost
+     * basis blended from the long it replaced. Both numbers were then wrong for
+     * every fill after it.
+     */
+    const flip = before * after < 0;
+    const reducing = !flip && Math.abs(after) < Math.abs(before) - FLAT;
     let closedPnl = leg.closedPnl;
     if (closedPnl === undefined) {
       closedPnl = 0;
-      if (reducing && Math.abs(before) > FLAT) {
+      if (flip) {
+        closedPnl = (leg.px - state.avg) * Math.abs(before) * Math.sign(before);
+      } else if (reducing && Math.abs(before) > FLAT) {
         const closed = Math.min(leg.sz, Math.abs(before));
         closedPnl = (leg.px - state.avg) * closed * Math.sign(before);
       }
     }
-    if (Math.abs(after) > Math.abs(before) + FLAT) {
+    if (flip) {
+      state.avg = leg.px;
+    } else if (Math.abs(after) > Math.abs(before) + FLAT) {
       const added = leg.sz;
       const held = Math.abs(before);
       state.avg = held + added > 0 ? (state.avg * held + leg.px * added) / (held + added) : leg.px;

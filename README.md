@@ -1,12 +1,13 @@
 # Runback
 
-Paste a wallet. Every position it has taken on a perp book we can actually read comes
-back as a catalogue you can filter and rank. Open one and watch it play out on the
-chart, entry to exit, with the drawdown a PnL card leaves off, then export the clip.
+Run back any trade. Paste a wallet on a perp book we can actually read and every
+position comes back as a catalogue you can filter and rank. Open one and watch
+it play out on the chart, entry to exit, with the drawdown a PnL card leaves off,
+then export the clip.
 
 Hyperliquid is the native fit. Lighter and RiseX take the same 0x. Drift, Pacifica
-and Jupiter take a Solana key. dYdX takes `dydx1…`. Aster and Extended are not here:
-user history is signed or keyed.
+and Jupiter take a Solana key. dYdX takes `dydx1…`. Aster, Extended and Tread.fi
+are not here: user history is signed or keyed.
 
 ## Run it
 
@@ -17,6 +18,30 @@ No `.env`, no key, no account. Hyperliquid, Lighter, dYdX and Jupiter answer
 `access-control-allow-origin: *`, so the browser reads them directly. Pacifica, RiseX
 (and Drift if its host has moved) go through `/api/x/{venue}` because they do not send
 CORS headers; that proxy is the exception, not the architecture.
+
+## Check it
+
+    npm run typecheck
+    npm run lint
+    npm test
+    npm run build
+
+Those four are what CI runs, on Node 20 and 22. There is a fifth, and it is the one that
+finds real bugs:
+
+    npm run check              # picks a live wallet off the tape
+    npm run check -- 0x…       # or one you name
+
+`scripts/check.ts` walks a real wallet, folds it into positions, and reconciles our
+bar-by-bar PnL against the exchange's own per-fill number. Every interesting failure in
+this app is a data failure — an episode that never closes, a window the candle endpoint
+silently refuses, a fill counted twice — and none of those are visible from a screenshot.
+It is not in CI because it fails on somebody else's rate limit rather than on our code.
+
+`tests/fill.test.ts` covers the arithmetic that is not safe to leave to a live wallet:
+every case in it is a bug that shipped. It uses the Node test runner and no framework.
+
+[SECURITY.md](SECURITY.md) is where a vulnerability goes instead of the issue tracker.
 
 ## Why that matters more than it sounds
 
@@ -107,8 +132,12 @@ merged per bar and capped at the forty that moved the most money, because a posi
     src/lib/export.ts      the offscreen chart a clip is rendered from
     src/lib/frame.ts       everything painted around that chart, per frame
     src/lib/sound.ts       synthesised cues, live and rendered offline for the clip
+    src/lib/fill.ts        legs -> Fill, for books that do not compute PnL themselves
     src/components         the nav, ticker, catalogue and replay
     src/app/w/[...slug]    `/w/{venue}/{wallet}`. `/w/0x…` still redirects here.
+    src/app/api/x/[venue]  the same-origin proxy, host-allowlisted
+    scripts/check.ts       the live reconciliation
+    tests/                 the arithmetic, on the cases that were wrong
 
 ## Credit
 
@@ -118,4 +147,7 @@ than `MediaRecorder`, so a machine that cannot composite 1080p in 33ms produces 
 file rather than a slower, jerkier one. Its replay pacing and forming-candle behaviour are
 the reference this one was corrected against.
 
-MIT.
+## Licence
+
+MIT. See [LICENSE](LICENSE) — it carries Trickshot's copyright too, for the files adapted
+from it.

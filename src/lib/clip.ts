@@ -29,9 +29,6 @@ import {
 
 export type Shape = "landscape" | "portrait" | "square";
 
-/** In picker order. */
-export const SHAPES = ["landscape", "portrait", "square"] as const;
-
 export const FORMATS: Record<Shape, { w: number; h: number; label: string }> = {
   landscape: { w: 1920, h: 1080, label: "16:9" },
   portrait: { w: 1080, h: 1920, label: "9:16" },
@@ -165,7 +162,7 @@ export function layoutFor(shape: Shape): Layout {
  * Derived rather than fixed: the old exporter asked for 8 Mbps whatever it was
  * encoding, which is generous for a 992x340 chart and thin for 1080p.
  */
-export function bitrateFor(w: number, h: number, fps = FPS): number {
+function bitrateFor(w: number, h: number, fps = FPS): number {
   return Math.round(w * h * fps * 0.19);
 }
 

@@ -85,8 +85,14 @@ function schedule(c: BaseAudioContext, out: AudioNode, cue: Cue, at: number): vo
     case "buy":
       tone(c, out, at, { freq: 880, to: 1180, type: "triangle", duration: 0.07, gain: 0.34 });
       break;
+    /**
+     * A till, because a sale is money arriving — Trickshot rings a kaching on every
+     * bar that sold. Two bright notes, up, rather than the old descending blip, which
+     * read as an error tone.
+     */
     case "sell":
-      tone(c, out, at, { freq: 587, to: 440, type: "triangle", duration: 0.08, gain: 0.34 });
+      tone(c, out, at, { freq: 1245, type: "triangle", duration: 0.06, gain: 0.3 });
+      tone(c, out, at, { freq: 1865, type: "triangle", duration: 0.11, gain: 0.24, delay: 0.05 });
       break;
     /** A struck bell, not a fanfare. It fires often enough that a fanfare would grate. */
     case "profit":

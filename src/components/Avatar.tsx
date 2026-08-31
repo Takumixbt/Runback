@@ -74,7 +74,7 @@ export function Avatar({
         height={size}
         loading="lazy"
         decoding="async"
-        className="shrink-0 rounded-full object-cover"
+        className="shrink-0 rounded-full object-cover ring-1 ring-white/10"
         suppressHydrationWarning
         style={{ width: size, height: size }}
       />
@@ -94,7 +94,7 @@ export function Avatar({
   return (
     <span
       aria-hidden
-      className="grid shrink-0 place-items-center rounded-full text-accent-text"
+      className="grid shrink-0 place-items-center rounded-full font-medium text-mint-text ring-1 ring-white/10"
       style={{
         width: size,
         height: size,
