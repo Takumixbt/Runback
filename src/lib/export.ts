@@ -33,9 +33,10 @@ import {
   type Shape,
 } from "@/lib/clip";
 import { paint, type PaintFill } from "@/lib/frame";
-import { duration } from "@/lib/format";
+import { duration, usdCompact } from "@/lib/format";
 import type { Replay } from "@/lib/episodes";
 import { renderTrack, type TimedCue } from "@/lib/sound";
+import { sameIdentity } from "@/lib/venue";
 
 const GROUND = "#0f1a1e";
 const LINE = "#273035";
@@ -47,13 +48,23 @@ const AMBER = "#97fce4";
 /** Mirrors the screen, so a clip frames the trade the same way the replay did. */
 const BAR_SPACING = 9;
 
-/** How long a fill label stays up, and how long it takes to arrive and leave. */
-const FLASH_HOLD = 1400;
-const FLASH_IN = 220;
-const FLASH_OUT = 380;
+/** How long one bar is held at 1x — the number the on-screen replay holds a bar for. */
+const STEP_MS = 600;
+
+/** Once per this much gained, the fanfare sounds. The live replay's high-water mark. */
+const FANFARE_AT = 20_000;
+
+/**
+ * A fill label's envelopes, matching the screen: 240ms in and out, a 1,400ms hold, and
+ * the wash on its own 900ms curve.
+ */
+const FLASH_MS = 1_400;
+const FADE_MS = 240;
 
 export interface ExportOptions {
   shape: Shape;
+  /** The replay's current speed, so the clip runs at the pace being watched. */
+  speed?: number;
   onProgress?: (fraction: number) => void;
   cancelled?: () => boolean;
 }
@@ -64,33 +75,24 @@ export interface ExportResult {
 }
 
 /**
- * How long the clip runs, and therefore how fast the bars go past.
+ * How long the clip runs: exactly as long as the replay takes at the current speed.
  *
- * Not a fixed bar rate. A 45-bar trade at a fixed rate is a two-second video and a
- * 1,200-bar one is forty seconds, so the pacing is derived the other way round: pick a
- * duration inside the ceiling and divide. Short replays get a floor so they are watchable.
+ * Every bar is held the same time — 600ms at 1x, forming as it goes — then the outro.
+ * Deriving a bar rate from a target duration did the opposite of this: a
+ * four-hundred-bar trade was smeared into a blur and a forty-bar one raced past. A clip
+ * that would run past the memory ceiling is REFUSED rather than compressed, and the
+ * panel says to raise the speed — Trickshot's answer to the same wall.
  */
-function pacing(bars: number): { seconds: number; frames: number } {
-  /**
-   * Roughly an eighth of a second a bar, floored so a short trade is still watchable and
-   * ceilinged by what the muxer can hold in memory. The old rate was 35ms a bar, which
-   * put a hundred-bar position on screen for three and a half seconds.
-   */
-  const ideal = Math.min(MAX_CLIP_SECONDS - OUTRO_SECONDS, Math.max(9, bars * 0.13));
-  return { seconds: ideal, frames: Math.round((ideal + OUTRO_SECONDS) * FPS) };
+function pacing(bars: number, speed: number): { stepMs: number; seconds: number; frames: number } {
+  const stepMs = STEP_MS / speed;
+  const seconds = (bars * stepMs) / 1000;
+  return { stepMs, seconds, frames: Math.round((seconds + OUTRO_SECONDS) * FPS) };
 }
 
-/** Which bar a fill lands on. Standalone, because the soundtrack needs it before the chart exists. */
-function barOfFill(data: Replay, ts: number): number {
-  let lo = 0;
-  let hi = data.candles.length - 1;
-  if (hi < 0) return 0;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >> 1;
-    if (data.candles[mid]!.t <= ts) lo = mid;
-    else hi = mid - 1;
-  }
-  return lo;
+/** The wash a fill throws, on the 900ms curve the screen's `replay-wash` keyframe describes. */
+function washAt(age: number): number {
+  if (age < 0 || age > 900) return 0;
+  return age < 198 ? age / 198 : 1 - (age - 198) / 702;
 }
 
 export async function exportClip(
@@ -117,35 +119,95 @@ export async function exportClip(
   const bars = data.candles.length;
   if (bars === 0) return null;
 
-  const { seconds, frames } = pacing(bars);
+  const { stepMs, seconds, frames } = pacing(bars, opts.speed ?? 1);
+  if (seconds + OUTRO_SECONDS > MAX_CLIP_SECONDS) {
+    throw new Error(
+      `That clip would run ~${Math.round(seconds + OUTRO_SECONDS)}s, past the ` +
+        `${MAX_CLIP_SECONDS}s ceiling — raise the replay speed and it will fit.`,
+    );
+  }
   const replayFrames = Math.round(seconds * FPS);
+
+  /** Which bar a moment falls in. */
+  const barOf = (ts: number): number => {
+    let lo = 0;
+    let hi = data.candles.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (data.candles[mid]!.t <= ts) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
+
+  const me = data.wallet;
+  const wasLiquidated = (f: { liquidatedUser: string | null }) =>
+    !!f.liquidatedUser && sameIdentity(f.liquidatedUser, me);
+
+  /**
+   * One cell per bar that traded: money in, money out, whether it was forced.
+   *
+   * The soundtrack, the fill labels and the running fill count all read from this, so
+   * none of them can disagree about what happened in a bar — re-deriving it per
+   * consumer is exactly how an earlier exporter drifted away from the screen.
+   */
+  const cells = new Map<
+    number,
+    { buy: number; sell: number; buySz: number; sellSz: number; liq: boolean }
+  >();
+  const fillsPerBar = new Int32Array(bars);
+  for (const f of data.fills) {
+    const b = barOf(f.time);
+    const cell = cells.get(b) ?? { buy: 0, sell: 0, buySz: 0, sellSz: 0, liq: false };
+    if (f.side === "B") {
+      cell.buy += f.sz * f.px;
+      cell.buySz += f.sz;
+    } else {
+      cell.sell += f.sz * f.px;
+      cell.sellSz += f.sz;
+    }
+    if (wasLiquidated(f)) cell.liq = true;
+    cells.set(b, cell);
+    fillsPerBar[b] = (fillsPerBar[b] ?? 0) + 1;
+  }
+  /** Fills landed at or before each bar, so a frame reads a cell instead of scanning. */
+  const fillsUpto = new Int32Array(bars);
+  {
+    let run = 0;
+    for (let i = 0; i < bars; i += 1) {
+      run += fillsPerBar[i] ?? 0;
+      fillsUpto[i] = run;
+    }
+  }
 
   /**
    * The soundtrack, rendered before a single frame is drawn.
    *
-   * Exports were silent, which is most of why a clip felt flat next to the replay it came
-   * from: the ticks on the fills and the thud on a liquidation are what give it weight
-   * when it autoplays muted-until-tapped in somebody's timeline.
-   *
-   * Cues are placed by mapping each fill's timestamp onto clip time through the same linear
-   * frame-to-bar walk the video uses, so a sound lands on the frame its arrow appears.
+   * The same cues the live replay sounds, on the same rule: one till per BAR that sold
+   * something rather than one per fill, the fanfare on each $20K high-water mark, a
+   * liquidation's weight, and the full stop on the end card. A cue sits at
+   * bar × stepMs, which is exactly where the frame walk puts that bar, so a sound lands
+   * on the frame its marker appears.
    */
   const track = await (async () => {
-    const spanBars = Math.max(bars - 1, 1);
     const cues: TimedCue[] = [];
-    for (const f of data.fills) {
-      const bar = barOfFill(data, f.time);
-      const at = (bar / spanBars) * seconds;
-      cues.push({
-        cue: f.liquidatedUser === data.wallet.toLowerCase()
-          ? "liquidation"
-          : f.side === "B"
-            ? "buy"
-            : "sell",
-        at,
-      });
+    let tier = Math.max(Math.floor((data.points[0]?.total ?? 0) / FANFARE_AT), 0);
+    for (let bar = 0; bar < bars; bar += 1) {
+      const at = (bar * stepMs) / 1000;
+      const cell = cells.get(bar);
+      if (cell) {
+        if (cell.sell > 0) cues.push({ cue: "sell", at });
+        if (cell.liq) cues.push({ cue: "liquidation", at });
+      }
+      // The opening bar ARMS the fanfare rather than sounding it: a window that opens
+      // mid-position can already be up six figures, and four stacked blasts is noise.
+      if (bar === 0) continue;
+      const reached = Math.floor((data.points[bar]?.total ?? 0) / FANFARE_AT);
+      if (reached > tier) {
+        tier = reached;
+        cues.push({ cue: "profit", at });
+      }
     }
-    cues.sort((a, b) => a.at - b.at);
     // The full stop, on the end card rather than on the last bar.
     cues.push({ cue: "settle", at: seconds + 0.15 });
     return renderTrack(cues, seconds + OUTRO_SECONDS);
@@ -204,8 +266,12 @@ export async function exportClip(
     wickUpColor: MINT,
     wickDownColor: SIGNAL,
     borderVisible: false,
-    priceLineVisible: false,
-    lastValueVisible: false,
+    /** The live mark, tagged on the scale, exactly as the on-screen chart carries it. */
+    priceLineVisible: true,
+    priceLineColor: TX3,
+    priceLineWidth: 1,
+    priceLineStyle: 2,
+    lastValueVisible: true,
   });
 
   if (data.avgEntry > 0) {
@@ -229,57 +295,8 @@ export async function exportClip(
 
   const markerApi = createSeriesMarkers(series, []);
 
-  const barOf = (ts: number): number => {
-    let lo = 0;
-    let hi = data.candles.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1;
-      if (data.candles[mid]!.t <= ts) lo = mid;
-      else hi = mid - 1;
-    }
-    return lo;
-  };
-
-  /**
-   * One marker per bar, matching the on-screen replay.
-   *
-   * A TWAP'd position carries hundreds of fills landing on a handful of bars. Drawn one
-   * per fill they stack into an unreadable smear, and every exported frame pays to filter
-   * the whole list. Merged by bar the picture is legible and the per-frame cost stops
-   * scaling with fill count.
-   */
-  const me = data.wallet.toLowerCase();
-  const wasLiquidated = (f: { liquidatedUser: string | null }) => f.liquidatedUser === me;
-
-  const cells = new Map<number, { buy: number; sell: number; liq: boolean; n: number }>();
-  for (const f of data.fills) {
-    const b = barOf(f.time);
-    const cell = cells.get(b) ?? { buy: 0, sell: 0, liq: false, n: 0 };
-    if (f.side === "B") cell.buy += f.sz * f.px;
-    else cell.sell += f.sz * f.px;
-    if (wasLiquidated(f)) cell.liq = true;
-    cell.n += 1;
-    cells.set(b, cell);
-  }
-  const markerBars = [...cells.keys()].sort((a, b) => a - b);
-  const allMarkers: SeriesMarker<Time>[] = markerBars.map((b) => {
-    const cell = cells.get(b)!;
-    const isBuy = cell.buy >= cell.sell;
-    return {
-      time: (data.candles[b]!.t / 1000) as UTCTimestamp,
-      position: isBuy ? "belowBar" : "aboveBar",
-      color: cell.liq ? AMBER : isBuy ? MINT : SIGNAL,
-      shape: isBuy ? "arrowUp" : "arrowDown",
-      text: cell.liq ? "LIQ" : "",
-    } satisfies SeriesMarker<Time>;
-  });
-
-  /** Markers at or before each bar, so a frame slices instead of scanning. */
-  const markersUpto = new Int32Array(data.candles.length);
-  for (let i = 0, k = 0; i < data.candles.length; i += 1) {
-    while (k < markerBars.length && markerBars[k]! <= i) k += 1;
-    markersUpto[i] = k;
-  }
+  /** The same markers the screen carries, so a clip is the replay rather than a cousin. */
+  const { markers: allMarkers, upto: markersUpto } = buildMarkers(data);
 
   series.setData([]);
 
@@ -313,56 +330,97 @@ export async function exportClip(
 
   /* -------------------------------------------------------- frame source */
 
-  const spanMs = data.candles[bars - 1]!.t - data.candles[0]!.t;
-  const startMs = data.candles[0]!.t;
-
-  /** Chart-time at a given frame, so fill labels can be timed against real timestamps. */
-  const timeAt = (frame: number): number =>
-    startMs + (Math.min(frame, replayFrames) / replayFrames) * spanMs;
-
-  const fillsFor = (nowMs: number): PaintFill[] => {
-    const out: PaintFill[] = [];
-    /** A whole clip's worth of bars can pass in one frame, so scale the label life too. */
-    const scale = Math.max(1, spanMs / (replayFrames * (1000 / FPS)));
-    const hold = FLASH_HOLD * scale;
-    const arrive = FLASH_IN * scale;
-    const leave = FLASH_OUT * scale;
-
-    /**
-     * Walked backwards, because the newest three are the ones worth showing.
-     *
-     * Forwards with a `break` at three took the OLDEST three fills still inside the window
-     * and stopped, so a TWAP'd entry with four hundred fills in view showed the first three
-     * for the entire time and never updated. The trailing `slice(-3)` could not fix that;
-     * there were only ever three to slice.
-     */
-    for (let k = data.fills.length - 1; k >= 0 && out.length < 3; k -= 1) {
-      const f = data.fills[k]!;
-      const age = nowMs - f.time;
-      if (age < 0 || age > hold) continue;
-      const alpha =
-        age < arrive
-          ? age / arrive
-          : age > hold - leave
-            ? Math.max(0, (hold - age) / leave)
-            : 1;
-      out.push({
-        isBuy: f.side === "B",
-        liquidation: wasLiquidated(f),
-        dir: f.dir,
-        usd: f.sz * f.px,
-        px: f.px,
-        slot: 0,
-        alpha,
-        // The wash is on its own shorter curve and gone the moment the label leaves.
-        wash: age > hold - leave ? 0 : Math.max(0, 1 - age / (hold * 0.6)),
-      });
+  /**
+   * Bars that carried fills, merged per side the way a single label represents them,
+   * with the clip time each lands at.
+   *
+   * The unit is the LABEL, not the fill: a TWAP puts twenty slices in one bar, and
+   * twenty numbers climbing the frame together say less than two do. Both the live
+   * overlay and this walk read fills summed per bar per side, so neither can disagree
+   * with the other about what happened in a bar.
+   */
+  interface Merged {
+    isBuy: boolean;
+    liq: boolean;
+    usd: number;
+    /** Volume-weighted price of the fills the label sums. */
+    px: number;
+  }
+  const filled: { bar: number; at: number; fills: Merged[] }[] = [];
+  for (const [bar, cell] of [...cells.entries()].sort((a, b) => a[0] - b[0])) {
+    const fills: Merged[] = [];
+    if (cell.liq) {
+      const usd = cell.buy + cell.sell;
+      const sz = cell.buySz + cell.sellSz;
+      fills.push({ isBuy: cell.buy >= cell.sell, liq: true, usd, px: sz > 0 ? usd / sz : 0 });
+    } else {
+      if (cell.buy > 0)
+        fills.push({
+          isBuy: true,
+          liq: false,
+          usd: cell.buy,
+          px: cell.buySz > 0 ? cell.buy / cell.buySz : 0,
+        });
+      if (cell.sell > 0)
+        fills.push({
+          isBuy: false,
+          liq: false,
+          usd: cell.sell,
+          px: cell.sellSz > 0 ? cell.sell / cell.sellSz : 0,
+        });
     }
-    // Oldest first again, then slotted, so labels stack in the order they landed.
-    out.reverse();
-    out.forEach((f, k) => (f.slot = k));
+    filled.push({ bar, at: bar * stepMs, fills });
+  }
+
+  /**
+   * The labels over the chart at one moment of the clip.
+   *
+   * Time here is clip time, not the wall clock, which is the whole reason the exporter
+   * cannot reuse the live overlay's state. The displacement rule is the part that
+   * matters: a new fill pushes the previous one OUT rather than stacking on it, so only
+   * the most recent filled bar is ever fully on screen. Deriving this as "any fill
+   * within FLASH_MS" instead would pile eighteen bars of labels on top of each other at
+   * 8x, where the screen shows one.
+   */
+  const flashesAt = (cursor: number, clipMs: number): PaintFill[] => {
+    const out: PaintFill[] = [];
+    const live = filled[cursor];
+    if (!live) return out;
+
+    const push = (group: (typeof filled)[number], leftAt: number | null) => {
+      group.fills.forEach((f, slot) => {
+        const age = clipMs - group.at;
+        const alpha =
+          leftAt === null
+            ? Math.min(1, age / FADE_MS)
+            : Math.max(0, 1 - (clipMs - leftAt) / FADE_MS);
+        if (alpha <= 0) return;
+        out.push({
+          isBuy: f.isBuy,
+          liquidation: f.liq,
+          usd: f.usd,
+          px: f.px,
+          slot,
+          alpha,
+          // The wash is on its own 900ms curve and gone the moment the label leaves.
+          wash: leftAt === null ? washAt(age) : 0,
+          out: leftAt !== null,
+        });
+      });
+    };
+
+    // Its time ran out with no later fill to displace it.
+    const expired = clipMs - live.at > FLASH_MS;
+    push(live, expired ? live.at + FLASH_MS : null);
+
+    const before = filled[cursor - 1];
+    if (before) push(before, live.at);
+
     return out;
   };
+
+  /** The newest filled bar the clip has reached, walked forwards as frames advance. */
+  let flashCursor = -1;
 
   try {
     const result = await encode({
@@ -374,28 +432,40 @@ export async function exportClip(
       cancelled: () => opts.cancelled?.() ?? false,
       onProgress: (i) => opts.onProgress?.(i / frames),
       draw: (ctx, i) => {
-        const exact = i >= replayFrames ? bars - 1 : (i / replayFrames) * bars;
+        /**
+         * Clip time to bar, at the same constant rate the live replay holds a bar.
+         * The last bar forms like every other: the outro does not start until its own
+         * step has run, so the trade finishes at the pace it was watched at.
+         */
+        const clipMs = Math.min(i / FPS, seconds) * 1000;
+        const exact = clipMs / stepMs;
         const barIndex = Math.min(Math.floor(exact), bars - 1);
-        stepTo(barIndex, i >= replayFrames ? 1 : exact - barIndex);
+        stepTo(barIndex, i >= replayFrames ? 1 : Math.min(exact - barIndex, 1));
+
+        while (flashCursor + 1 < filled.length && filled[flashCursor + 1]!.at <= clipMs) {
+          flashCursor += 1;
+        }
 
         const point = data.points[Math.min(barIndex, data.points.length - 1)] ?? null;
-        const nowMs = timeAt(i);
 
         paint(ctx, {
           layout,
           shot: chart.takeScreenshot(),
           label: data.label,
           wallet: data.wallet,
+          venue: data.venueName,
           side: data.side,
           total: i >= replayFrames ? data.net : (point?.total ?? 0),
           qty: point?.qty ?? 0,
           avgEntry: data.avgEntry,
-          fills: i >= replayFrames ? [] : fillsFor(nowMs),
+          point,
+          trades: fillsUpto[barIndex] ?? 0,
+          fills: i >= replayFrames ? [] : flashesAt(flashCursor, clipMs),
           liquidated: data.closedByLiquidation,
           outro:
-            i <= replayFrames
+            i < replayFrames
               ? 0
-              : Math.min(1, (i - replayFrames) / (OUTRO_SECONDS * FPS * 0.45)),
+              : Math.min(1, (i - replayFrames + 1) / (OUTRO_SECONDS * FPS)),
           final: {
             net: data.net,
             realized: data.realized,
@@ -417,12 +487,161 @@ export async function exportClip(
     const safe = data.label.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
     return {
       blob: result.blob,
-      filename: `runback-${safe}-${stamp}.${result.ext}`,
+      filename: `runback-${data.venue}-${safe}-${stamp}.${result.ext}`,
     };
   } finally {
     chart.remove();
     host.remove();
   }
+}
+
+/**
+ * The most marker-carrying bars a chart will keep, liquidations excepted.
+ *
+ * Enough to show where a position was built and taken off, few enough that each one is
+ * still a separate thing you can look at. A HIP-3 market maker's position can carry 911
+ * fills; merged per bar that is still a marker on nearly every bar, which is a ribbon,
+ * not an annotation.
+ */
+const MAX_MARKERS = 40;
+
+/**
+ * The wallet's fills as chart markers — one circle per bar per side, the text going to
+ * the biggest fills, liquidations always kept and always speaking.
+ *
+ * Shared by the live replay and the exporter, so a clip cannot disagree with the screen
+ * about where the trades were. Circles rather than arrows, Trickshot's marker: quieter
+ * at a glance, and the side is already in which edge of the bar the marker hangs off.
+ */
+export function buildMarkers(data: Replay): {
+  markers: SeriesMarker<Time>[];
+  /** How many markers exist at or before each bar, so a frame is a slice not a scan. */
+  upto: Int32Array;
+} {
+  const bars = data.candles.length;
+  const me = data.wallet;
+
+  const barOf = (ts: number): number => {
+    let lo = 0;
+    let hi = bars - 1;
+    if (hi < 0) return 0;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (data.candles[mid]!.t <= ts) lo = mid;
+      else hi = mid - 1;
+    }
+    return lo;
+  };
+
+  const byBar = new Map<number, { buy: number; sell: number; liq: boolean }>();
+  for (const f of data.fills) {
+    const b = Math.max(0, barOf(f.time));
+    const cell = byBar.get(b) ?? { buy: 0, sell: 0, liq: false };
+    if (f.side === "B") cell.buy += f.sz * f.px;
+    else cell.sell += f.sz * f.px;
+    if (f.liquidatedUser && sameIdentity(f.liquidatedUser, me)) cell.liq = true;
+    byBar.set(b, cell);
+  }
+
+  /**
+   * Only the bars that moved the most money get a marker.
+   *
+   * Ranking bars by the money that moved and keeping the largest leaves the entries,
+   * the exits and the big adds, which is the shape of the trade. Everything dropped is
+   * a top-up too small to change the story, and it is still in the fill table
+   * underneath. Liquidations are never dropped, whatever they cost.
+   */
+  const scored = [...byBar.entries()].map(([bar, cell]) => ({
+    bar,
+    cell,
+    moved: cell.buy + cell.sell,
+  }));
+  const keep = new Set<number>();
+  for (const s of scored) if (s.cell.liq) keep.add(s.bar);
+  scored
+    .filter((s) => !s.cell.liq)
+    .sort((a, b) => b.moved - a.moved)
+    .slice(0, Math.max(0, MAX_MARKERS - keep.size))
+    .forEach((s) => keep.add(s.bar));
+
+  const kept = scored.filter((s) => keep.has(s.bar)).sort((a, b) => a.bar - b.bar);
+
+  /**
+   * One marker per bar PER SIDE: a buy hangs below the bar and a sell above, so a bar
+   * that did both carries both and they can never overlap. A liquidation is one marker
+   * on the dominant side.
+   */
+  interface Pending {
+    bar: number;
+    isBuy: boolean;
+    liq: boolean;
+    usd: number;
+  }
+  const pending: Pending[] = [];
+  for (const { bar, cell } of kept) {
+    if (cell.liq) {
+      pending.push({ bar, isBuy: cell.buy >= cell.sell, liq: true, usd: cell.buy + cell.sell });
+    } else {
+      if (cell.buy > 0) pending.push({ bar, isBuy: true, liq: false, usd: cell.buy });
+      if (cell.sell > 0) pending.push({ bar, isBuy: false, liq: false, usd: cell.sell });
+    }
+  }
+
+  /** Rough width of a marker label at the chart's 11px. Trickshot's estimate. */
+  const widthOf = (text: string) => text.length * 6.2 + 10;
+  const full = (m: Pending) => `${m.isBuy ? "BUY" : "SELL"} ${usdCompact(m.usd)}`;
+  const compact = (m: Pending) => usdCompact(m.usd);
+
+  /**
+   * Which markers on one side of the bars can carry text without overlapping.
+   *
+   * Bars are nine pixels apart and "SELL $12.3K" is about seventy, so any two labels
+   * within a few bars of each other collide. Every marker keeps its circle; the TEXT
+   * goes to the biggest fills first, and a smaller one inside the room an
+   * already-placed label needs stays a circle. Full labels where they all fit, short
+   * ones where they do not.
+   */
+  const placeText = (side: Pending[], write: (m: Pending) => string) => {
+    const out = new Map<Pending, string>();
+    const placed: { bar: number; half: number }[] = [];
+    for (const m of [...side].sort((a, b) => b.usd - a.usd)) {
+      const text = write(m);
+      const half = widthOf(text) / 2;
+      const clear = placed.every(
+        (o) => Math.abs(o.bar - m.bar) * BAR_SPACING >= o.half + half,
+      );
+      if (!clear) continue;
+      placed.push({ bar: m.bar, half });
+      out.set(m, text);
+    }
+    return out;
+  };
+
+  const text = new Map<Pending, string>();
+  for (const isBuy of [true, false]) {
+    const side = pending.filter((m) => m.isBuy === isBuy && !m.liq);
+    const long = placeText(side, full);
+    const short = long.size === side.length ? long : placeText(side, compact);
+    for (const [m, t] of short.size > long.size ? short : long) text.set(m, t);
+  }
+
+  // Ascending by bar, which is ascending by time — the library insists on it.
+  const ordered = pending.sort((a, b) => a.bar - b.bar || Number(b.isBuy) - Number(a.isBuy));
+  const markers: SeriesMarker<Time>[] = ordered.map((m) => ({
+    time: (data.candles[m.bar]!.t / 1000) as UTCTimestamp,
+    position: m.isBuy ? "belowBar" : "aboveBar",
+    color: m.liq ? AMBER : m.isBuy ? MINT : SIGNAL,
+    shape: "circle",
+    text: m.liq ? `LIQ ${usdCompact(m.usd)}` : (text.get(m) ?? ""),
+  }));
+
+  const upto = new Int32Array(bars);
+  let k = 0;
+  for (let i = 0; i < bars; i += 1) {
+    while (k < ordered.length && ordered[k]!.bar <= i) k += 1;
+    upto[i] = k;
+  }
+  return { markers, upto };
 }
 
 export { FORMATS, type Shape };

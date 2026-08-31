@@ -1,73 +1,67 @@
 @import "tailwindcss";
 
 /**
- * Hyperliquid's own design tokens.
+ * Runback design tokens.
  *
- * Lifted from app.hyperliquid.xyz's stylesheet rather than eyeballed, so Runback reads as
- * part of the same product instead of a tribute to it. Their `:root` block is reproduced
- * here almost verbatim; the additions are marked.
+ * The color VALUES in this block are load-bearing beyond the page: `frame.ts` paints
+ * the exported video on a bare canvas with no access to CSS and duplicates ground, the
+ * mints and the loss red as constants. Change a value here and the export drifts, so
+ * the palette is stable and new chrome gets new tokens instead.
  *
- * The things that make it look like them are not the colours, though. They are:
- *   - weight 400 nearly everywhere, including titles. Bold is rare and small.
- *   - body copy at 11-13px, titles at 18-20px. Much smaller than feels right at first.
- *   - 1px borders in --hl-border on a transparent fill, not filled cards.
- *   - .12s transitions on border-color and background, and scale(.99) on :active.
- *
- * `frame.ts` paints the exported video on a bare canvas with no access to CSS, so these
- * values are duplicated there as constants and the two have to stay in step.
+ * One typeface. Inter for everything. Mint is a signal — focus, selection, live, the
+ * one action on the screen — never decoration. Surfaces step up from the ground;
+ * 1px borders are for things you can press and for rows that need ruling.
  */
 @theme {
   --color-ground: #0f1a1e;
-  --color-surface: #0f1a1f;
   --color-inset: #273035;
   --color-border: #273035;
   --color-divider: #ffffff0f;
+
+  /* Surface step above the ground. Cards sit on `raise`. */
+  --color-raise: #142229;
 
   --color-title: #ffffff;
   --color-tx: #f6fefd;
   --color-muted: #9aa3a4;
   --color-faint: #9aa3a48c;
 
-  --color-accent: #97fce4;
-  --color-accent-soft: #50d2c1;
-  --color-accent-text: #04060c;
-  --color-accent-dim: #17453f;
+  --color-mint: #97fce4;
+  --color-mint-soft: #50d2c1;
+  --color-mint-text: #04060c;
 
-  --color-error: #ed7088;
-  /* Added: a loss wash and a shimmer midpoint, both derived from their palette. */
-  --color-error-dim: #3d2027;
+  --color-loss: #ed7088;
   --color-shimmer: #1f2d33;
 
-  --radius-hl: 12px;
-  --radius-hl-sm: 8px;
+  /** One radius for every card and panel in the product. */
+  --radius-card: 16px;
 
   /**
-   * A type scale, because there was not one.
+   * The type ramp. Every size in the product is one of these.
    *
-   * Seven steps, each with a job:
    *   micro   uppercase labels and badges, always with tracking
-   *   mini    secondary text, counts, captions
+   *   mini    secondary text, counts, chips
    *   body    the default for interface text and table cells
-   *   read    inputs and anything set as prose
    *   lead    names, tickers, panel titles
-   *   head    page titles and the market on a replay
+   *   title   metric figures, card headlines
+   *   head    page titles
    *   figure  the PnL that moves
    *   hero    the end card, once
-   *   display the home headline
    */
   --text-micro: 11px;
   --text-mini: 13px;
   --text-body: 14px;
-  --text-read: 15px;
   --text-lead: 17px;
+  --text-title: 20px;
   --text-head: 24px;
   --text-figure: 32px;
   --text-hero: 52px;
-  --text-display: 64px;
 
   --font-sans: var(--font-inter), Inter, system-ui, "Segoe UI", Roboto, Ubuntu, "Helvetica Neue", sans-serif;
-  --shadow-card: 0 0 0 1px #ffffff08 inset, 0 18px 50px -24px #00000088;
-  --glow-mint: 0 0 80px -20px #50d2c155;
+
+  --shadow-card: 0 0 0 1px #ffffff06 inset, 0 24px 60px -32px #00000099;
+  /** Focus ring on the search field. A 1px mint edge, no bloom. */
+  --glow-focus: 0 0 0 1px #50d2c166;
 }
 
 :root {
@@ -88,10 +82,11 @@ body {
 
 body {
   margin: 0;
-  background-image:
-    radial-gradient(1100px 560px at 50% -120px, rgb(80 210 193 / 0.18), transparent 55%),
-    radial-gradient(780px 420px at 110% -10%, rgb(23 69 63 / 0.42), transparent 48%),
-    radial-gradient(640px 320px at -10% 110%, rgb(80 210 193 / 0.06), transparent 52%);
+  background-image: radial-gradient(
+    1100px 520px at 50% -220px,
+    rgba(23 69 63 / 0.18),
+    transparent 62%
+  );
   background-attachment: fixed;
 }
 
@@ -102,7 +97,7 @@ body {
   text-underline-offset: 0.2em;
 }
 
-/* Theirs: hidden by default, thin and translucent where scrolling is expected. */
+/* Thin and quiet where scrolling is expected, hidden elsewhere. */
 ::-webkit-scrollbar {
   display: none;
 }
@@ -118,7 +113,7 @@ body {
   background: transparent;
 }
 .scrollers::-webkit-scrollbar-thumb {
-  background: #ffffff33;
+  background: #ffffff2b;
   border-radius: 5px;
 }
 
@@ -150,13 +145,26 @@ button:focus-visible,
 a:focus-visible,
 input:focus-visible,
 summary:focus-visible {
-  outline: 2px solid var(--color-accent-soft);
+  outline: 2px solid var(--color-mint-soft);
   outline-offset: 2px;
 }
 
+/**
+ * Press feedback. Always 0.96 — anything below 0.95 feels exaggerated.
+ * Named properties so a theme flip cannot smear every color transition.
+ */
+.rb-press {
+  transition-property: transform, filter, background-color, color, border-color;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+.rb-press:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
 ::selection {
-  background: var(--color-accent-soft);
-  color: var(--color-accent-text);
+  background: var(--color-mint-soft);
+  color: var(--color-mint-text);
 }
 
 /* The chart library paints its own attribution link; the export must not include it. */
@@ -169,11 +177,6 @@ summary:focus-visible {
 @keyframes hl-fade {
   from { opacity: 0; }
   to { opacity: 1; }
-}
-
-@keyframes hl-rise {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes hl-shimmer {
@@ -191,74 +194,77 @@ summary:focus-visible {
   to { transform: translateX(-50%); }
 }
 
-/**
- * The mark leaning through space.
- *
- * Three axes on one slow cycle, deliberately out of step with the flow that runs along
- * the path, so the two motions never line up and the mark never strikes the same pose
- * twice running. The angles stay small: enough that the form is read as sitting in space,
- * never so much that it flattens to a line.
- */
-@keyframes runback-swell {
-  0%   { transform: rotateX(14deg) rotateY(-20deg) rotateZ(-3deg); }
-  33%  { transform: rotateX(-10deg) rotateY(12deg) rotateZ(2deg); }
-  66%  { transform: rotateX(8deg) rotateY(24deg) rotateZ(-1deg); }
-  100% { transform: rotateX(14deg) rotateY(-20deg) rotateZ(-3deg); }
-}
-
-/** The head running the loop. One full pathLength a cycle, so it never seams. */
-@keyframes runback-flow {
-  from { stroke-dashoffset: 0; }
-  to   { stroke-dashoffset: -100; }
-}
-
 @keyframes hl-pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.4; }
 }
 
 .hl-fade { animation: hl-fade 0.16s ease-out; }
-.hl-rise { animation: hl-rise 0.2s ease-out; }
 
-/** Their loading treatment: a band of lighter ground travelling across the shape. */
+/**
+ * The replay's fill effects, Trickshot's curves.
+ *
+ * The wash a fill throws across the chart: up fast, gone by 900ms. The label's own
+ * envelope lives on its phase transitions rather than a keyframe, because a fill can
+ * be pushed out early by the next one landing.
+ */
+@keyframes replay-wash {
+  0% { opacity: 0; }
+  22% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.replay-wash {
+  animation: replay-wash 900ms ease-out forwards;
+}
+
+.replay-flash {
+  transition:
+    opacity 240ms ease-out,
+    transform 620ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .replay-flash {
+    transition: opacity 240ms ease-out;
+    transform: translate(-50%, 0) !important;
+  }
+}
+
+/** A band of lighter ground sweeping across the shape while the real thing loads. */
 .hl-skeleton {
   background: linear-gradient(
     110deg,
-    var(--color-surface) 0% 40%,
+    var(--color-raise) 0% 40%,
     var(--color-shimmer) 50%,
-    var(--color-surface) 60% 100%
+    var(--color-raise) 60% 100%
   );
   background-size: 200% 100%;
   animation: hl-shimmer 1.8s linear infinite;
-  border-radius: var(--radius-hl-sm);
 }
 
+/**
+ * The one card. Tone first — a step up from the ground with a breath of light at the
+ * top — and a border so quiet it only reads as an edge, never as a rule.
+ */
 .rb-card {
-  border: 1px solid rgb(255 255 255 / 0.07);
+  border: 1px solid rgba(255 255 255 / 0.06);
   background:
-    linear-gradient(180deg, rgb(255 255 255 / 0.035), transparent 42%),
-    linear-gradient(180deg, rgb(21 34 39 / 0.94) 0%, rgb(15 26 31 / 0.96) 100%);
+    linear-gradient(180deg, rgba(255 255 255 / 0.028), transparent 42%),
+    var(--color-raise);
   box-shadow: var(--shadow-card);
-  border-radius: 16px;
+  border-radius: var(--radius-card);
 }
 
-.rb-card-hover {
-  transition:
-    border-color 160ms ease,
-    transform 160ms ease,
-    box-shadow 160ms ease;
-}
-.rb-card-hover:hover {
-  border-color: rgb(80 210 193 / 0.28);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-card), var(--glow-mint);
-}
-
+/**
+ * The one small-caps label. Used where a label is genuinely a label — table heads,
+ * panel titles — and nowhere near every section of the page.
+ */
 .rb-kicker {
   font-size: var(--text-micro);
-  letter-spacing: 0.18em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-accent-soft);
+  color: var(--color-faint);
   font-weight: 500;
 }
 

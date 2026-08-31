@@ -3,17 +3,28 @@
  * `open_long` / `close_long`, `pnl`, `fee`, and a liquidation `cause`.
  *
  * GET /api/v1/trades/history?account= answers 200 without a signature (empty
- * list for an unused key). CORS headers are missing on some paths, so the
- * browser falls through the proxy. History is capped at 30 days per request,
- * so we walk 29-day windows backwards. Klines are the same shape as
+ * list for an unused key). No CORS, so the browser goes through the proxy.
+ * History is capped at 30 days per request, so we walk 29-day windows
+ * backwards, with a gap: a tight loop 429s. Klines are the same shape as
  * Hyperliquid's snapshot.
  */
 
 import { fillsFromLegs, type Leg } from "@/lib/fill";
-import { json } from "@/lib/http";
+import { json, wait } from "@/lib/http";
 import { n, type VenueAdapter } from "@/lib/adapter";
-import type { Candle, Market } from "@/lib/hl";
+import type { Market } from "@/lib/hl";
 import { kindOfAddress } from "@/lib/venue";
+
+/** Pacifica 429s a burst. One window at a time, with a gap, is what it will serve. */
+const GAP_MS = 250;
+
+/**
+ * Pacifica is inconsistent about seconds versus milliseconds between endpoints, so
+ * both the tape and the klines are normalised through here. They used to disagree:
+ * fills were converted and bars were not, which put the two on different time bases
+ * and left `buildReplay` assigning every fill to the wrong bar — or to no bar at all.
+ */
+const asMs = (v: number): number => (v > 1e12 ? v : v * 1000);
 
 const INTERVAL: Record<string, string> = {
   "1m": "1m",
@@ -67,11 +78,14 @@ export const adapter: VenueAdapter = {
     const legs: Leg[] = [];
     let budget = maxPages;
     let windowEnd = endTime;
+    let first = true;
 
     while (budget > 0 && windowEnd > startTime) {
       const windowStart = Math.max(startTime, windowEnd - WINDOW);
       let cursor: string | undefined;
       do {
+        if (!first) await wait(GAP_MS, opts.signal);
+        first = false;
         const q = new URLSearchParams({
           account: user,
           start_time: String(windowStart),
@@ -100,7 +114,7 @@ export const adapter: VenueAdapter = {
             px,
             sz,
             buy,
-            time: t.created_at > 1e12 ? t.created_at : t.created_at * 1000,
+            time: asMs(t.created_at),
             fee: Math.abs(n(t.fee)),
             hash: String(t.order_id ?? t.history_id),
             tid: t.history_id,
@@ -122,15 +136,18 @@ export const adapter: VenueAdapter = {
       `/api/v1/kline?symbol=${encodeURIComponent(coin)}&interval=${i}&start_time=${startTime}&end_time=${endTime}`,
       { signal },
     );
-    return (raw.data ?? []).map((b) => ({
-      t: b.t,
-      o: n(b.o),
-      h: n(b.h),
-      l: n(b.l),
-      c: n(b.c),
-      v: n(b.v),
-      n: b.n ?? 0,
-    }));
+    return (raw.data ?? [])
+      .map((b) => ({
+        t: asMs(n(b.t)),
+        o: n(b.o),
+        h: n(b.h),
+        l: n(b.l),
+        c: n(b.c),
+        v: n(b.v),
+        n: b.n ?? 0,
+      }))
+      .filter((b) => b.t > 0)
+      .sort((a, b) => a.t - b.t);
   },
 };
 

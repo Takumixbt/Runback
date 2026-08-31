@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   CandlestickSeries,
   createChart,
@@ -11,17 +11,27 @@ import {
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
   type LineData,
-  type SeriesMarker,
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
 import type { Replay as ReplayData } from "@/lib/episodes";
-import { exportClip, FORMATS, type Shape } from "@/lib/export";
+import { buildMarkers, exportClip, FORMATS, type Shape } from "@/lib/export";
+import { MAX_CLIP_SECONDS, OUTRO_SECONDS } from "@/lib/clip";
 import { save } from "@/lib/record";
 import { play, readMuted, writeMuted } from "@/lib/sound";
-import { clock, duration, pct, price, shortAddress, signedUsd, size } from "@/lib/format";
+import {
+  clock,
+  duration,
+  pct,
+  price,
+  signedUsd,
+  size,
+  usdCompact,
+} from "@/lib/format";
 import { CoinIcon } from "./CoinIcon";
 import { Panel } from "./Panel";
+import { VenueMark } from "./VenueMark";
+import { sameIdentity } from "@/lib/venue";
 
 const GROUND = "#0f1a1e";
 const BORDER = "#273035";
@@ -50,14 +60,6 @@ const STEP_MS = 600;
 const BAR_SPACING = 9;
 
 /**
- * The most arrows a chart will carry, liquidations excepted.
- *
- * Enough to show where a position was built and taken off, few enough that each one is
- * still a separate thing you can look at.
- */
-const MAX_MARKERS = 40;
-
-/**
  * Every bar gets the same time. There is no emphasis and that is deliberate.
  *
  * Holding fill bars longer than quiet ones sounded like a good idea and watched terribly:
@@ -68,8 +70,40 @@ const MAX_MARKERS = 40;
 
 const SPEEDS = [1, 2, 4, 8] as const;
 
-/** Every $500 gained past the previous high sounds once. */
-const PROFIT_STEP = 500;
+/**
+ * Once per this much gained, the fanfare sounds. Trickshot's $20K.
+ *
+ * A high-water mark rather than a threshold, so a position that dips and recovers does
+ * not sound the same step twice — it fires on GAINING another twenty thousand, not on
+ * wobbling across a line. Five hundred was a carnival: a good trade chimed every few
+ * bars the whole way up.
+ */
+const FANFARE_AT = 20_000;
+
+/** How long a fill's label holds over the chart before leaving. Trickshot's number. */
+const FLASH_MS = 1_400;
+
+/**
+ * One fill announcing itself over the chart.
+ *
+ * `enter` for one frame so the transition has somewhere to come from, then `shown`,
+ * then `out` — either when its time is up or when the next fill needs the space.
+ */
+interface Flash {
+  id: number;
+  isBuy: boolean;
+  liq: boolean;
+  usd: number;
+  /** Volume-weighted price of the fills the label sums. */
+  px: number;
+  /** Stacking offset, so a buy and a sell in one bar do not sit on each other. */
+  slot: number;
+  phase: "enter" | "shown" | "out";
+  bornAt: number;
+  outAt?: number;
+}
+
+let flashId = 0;
 
 /**
  * Rows the fill table will render.
@@ -80,7 +114,7 @@ const PROFIT_STEP = 500;
  */
 const MAX_FILL_ROWS = 150;
 
-export function Replay({ data }: { data: ReplayData }) {
+export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => void }) {
   const priceRef = useRef<HTMLDivElement>(null);
   const pnlRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -93,7 +127,18 @@ export function Replay({ data }: { data: ReplayData }) {
   const milestoneRef = useRef(0);
 
   const [cursor, setCursor] = useState(0);
-  const [playing, setPlaying] = useState(true);
+  /**
+   * Autoplay is the whole point of this screen, except for somebody who has asked the
+   * system for less motion. The stylesheet can flatten a transition but it cannot stop
+   * a canvas being repainted every frame, so the replay opens paused instead and they
+   * press play. Read in the initialiser rather than an effect, so the first painted
+   * frame is already still; safe because a replay only ever mounts client-side, after
+   * a row is opened.
+   */
+  const [playing, setPlaying] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  });
   /**
    * Playback actually reached the end, which is not the same as the cursor being on the
    * last bar. The cursor lands there the moment that bar STARTS forming, so keying the end
@@ -101,19 +146,42 @@ export function Replay({ data }: { data: ReplayData }) {
    * while the last of the price action happened behind it.
    */
   const [finished, setFinished] = useState(false);
-    const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(1);
-  const [muted, setMuted] = useState(true);
+  const [speed, setSpeed] = useState<(typeof SPEEDS)[number]>(2);
+  const muted = useSyncExternalStore(
+    (onChange) => {
+      window.addEventListener("storage", onChange);
+      window.addEventListener("runback-mute", onChange);
+      return () => {
+        window.removeEventListener("storage", onChange);
+        window.removeEventListener("runback-mute", onChange);
+      };
+    },
+    readMuted,
+    () => true,
+  );
+  /**
+   * Fills currently announcing themselves over the chart.
+   *
+   * Held in state rather than drawn into the canvas because the chart library owns that
+   * canvas — anything painted there is wiped on the next update, and a fill's flash has
+   * to outlive the bar that produced it.
+   */
+  const [flashes, setFlashes] = useState<Flash[]>([]);
 
   const bars = data.candles.length;
-  /** Lowercased once: every fill compares against it to attribute a forced close. */
-  const me = data.wallet.toLowerCase();
   const wasLiquidated = useCallback(
-    (f: { liquidatedUser: string | null }) => f.liquidatedUser === me,
-    [me],
+    (f: { liquidatedUser: string | null }) =>
+      !!f.liquidatedUser && sameIdentity(f.liquidatedUser, data.wallet),
+    [data.wallet],
   );
 
-
-  useEffect(() => setMuted(readMuted()), []);
+  useEffect(() => {
+    const onVis = () => {
+      if (document.hidden) setPlaying(false);
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
 
   /* ------------------------------------------------------------ pre-work */
 
@@ -160,79 +228,20 @@ export function Replay({ data }: { data: ReplayData }) {
       else map.set(b, [f]);
     }
     return map;
-  }, [data.fills, barOf]);
+  }, [data, barOf]);
 
   /**
-   * One marker per BAR, not one per fill, and a running count so a frame can slice.
+   * The wallet's fills as chart markers, built by the same function the exporter uses.
    *
-   * Both halves of this are performance fixes for the same case: a position built out of a
-   * TWAP or a swept market order. MEASURED on a HIP-3 market maker, one position carried
-   * 911 fills. That meant 911 arrows stacked on a few hundred bars, which is unreadable,
-   * and `allMarkers.filter(...)` running over all 911 on every animation frame, which is
-   * what made the replay crawl.
-   *
-   * Merging by bar fixes the picture: twenty slices at the same minute were one decision
-   * and should be one arrow, sized by the total. `upto` then turns the per-frame filter
-   * into a slice of a pre-sorted array, so the cost stops scaling with fill count.
+   * One circle per bar per side rather than one arrow per fill — a position built out
+   * of a TWAP or a swept market order (MEASURED: 911 fills on one HIP-3 market maker)
+   * otherwise stacks into an unreadable ribbon, and the per-frame filter's cost scales
+   * with fill count. `upto` turns that filter into a slice of a pre-sorted array.
    */
-  const { markers: allMarkers, upto: markersUpto } = useMemo(() => {
-    const byBar = new Map<number, { buy: number; sell: number; liq: boolean }>();
-    for (const f of data.fills) {
-      const b = Math.max(0, barOf(f.time));
-      const cell = byBar.get(b) ?? { buy: 0, sell: 0, liq: false };
-      if (f.side === "B") cell.buy += f.sz * f.px;
-      else cell.sell += f.sz * f.px;
-      if (wasLiquidated(f)) cell.liq = true;
-      byBar.set(b, cell);
-    }
-
-    /**
-     * Only the bars that actually carried the position get an arrow.
-     *
-     * Merging fills per bar was not enough on its own. Machi's HYPE position is 644 fills
-     * and his BTC one 735, scaled in and out continuously, so nearly every bar earned a
-     * marker and the chart wore two unbroken ribbons of arrowheads along its edges. The
-     * position was invisible behind the annotation of it.
-     *
-     * Ranking bars by the money that moved and keeping the largest leaves the entries, the
-     * exits and the big adds, which is the shape of the trade. Everything dropped is a
-     * top-up too small to change the story, and it is still in the fill table underneath.
-     * Liquidations are never dropped, whatever they cost.
-     */
-    const scored = [...byBar.entries()].map(([bar, cell]) => ({
-      bar,
-      cell,
-      moved: cell.buy + cell.sell,
-    }));
-    const keep = new Set<number>();
-    for (const s of scored) if (s.cell.liq) keep.add(s.bar);
-    scored
-      .filter((s) => !s.cell.liq)
-      .sort((a, b) => b.moved - a.moved)
-      .slice(0, Math.max(0, MAX_MARKERS - keep.size))
-      .forEach((s) => keep.add(s.bar));
-
-    const kept = scored.filter((s) => keep.has(s.bar)).sort((a, b) => a.bar - b.bar);
-    const markers: SeriesMarker<Time>[] = kept.map(({ bar, cell }) => {
-      const isBuy = cell.buy >= cell.sell;
-      return {
-        time: (data.candles[bar]!.t / 1000) as UTCTimestamp,
-        position: isBuy ? "belowBar" : "aboveBar",
-        color: cell.liq ? ACCENT : isBuy ? UP : DOWN,
-        shape: isBuy ? "arrowUp" : "arrowDown",
-        text: cell.liq ? "LIQ" : "",
-      };
-    });
-
-    /** How many markers exist at or before each bar, so a frame is a slice not a scan. */
-    const upto = new Int32Array(data.candles.length);
-    let k = 0;
-    for (let i = 0; i < data.candles.length; i += 1) {
-      while (k < kept.length && kept[k]!.bar <= i) k += 1;
-      upto[i] = k;
-    }
-    return { markers, upto };
-  }, [data.fills, data.candles, barOf, wasLiquidated]);
+  const { markers: allMarkers, upto: markersUpto } = useMemo(
+    () => buildMarkers(data),
+    [data],
+  );
 
   /* -------------------------------------------------------------- charts */
 
@@ -458,18 +467,32 @@ export function Replay({ data }: { data: ReplayData }) {
   );
 
   /**
-   * Redraw on anything that is not the animation loop: a scrub, a restart, a fresh chart.
+   * Redraw on anything that is not the animation loop: a scrub, a pause, a restart, a
+   * fresh chart.
    *
-   * `paintedRef` is reset to -1 when the chart is rebuilt, and reading it here would make
-   * this effect depend on a ref it cannot observe, so it simply paints the current cursor
-   * whole. The loop takes over the moment playback resumes.
+   * While the clock is running the loop owns the chart and this stays out of its way.
+   * Painting here too put a fully-formed copy of each new bar up for the one frame
+   * between the cursor landing and the loop's next paint, so every bar blinked to full
+   * height before shrinking back to grow. Pausing, on the other hand, snaps the bar
+   * being formed to its real close — which is what Trickshot does, and what makes a
+   * paused frame read as the market rather than as half a candle.
    */
   useEffect(() => {
+    if (playing) return;
     paintTo(cursor, 1);
-  }, [cursor, paintTo]);
+  }, [cursor, playing, paintTo]);
 
   /* --------------------------------------------------------------- sound */
 
+  /**
+   * Sound follows the bar, not the fills list — Trickshot's rule.
+   *
+   * One till for every BAR that sold something, rather than one per fill: a TWAP
+   * splitting an exit across twenty slices is one exit, and twenty tills at once is
+   * noise. Buys are silent. A liquidation keeps its own weight, and the fanfare is a
+   * high-water mark every $20K — armed at the opening bar, so a window that opens
+   * mid-position does not begin with four stacked blasts.
+   */
   useEffect(() => {
     if (bars === 0) return;
     const upto = Math.min(cursor, bars - 1);
@@ -477,25 +500,137 @@ export function Replay({ data }: { data: ReplayData }) {
     // Scrubbing backwards re-arms rather than replaying everything it passes.
     if (upto <= soundedRef.current) {
       soundedRef.current = upto;
-      return;
-    }
-
-    for (let b = soundedRef.current + 1; b <= upto; b += 1) {
-      for (const f of fillsAtBar.get(b) ?? []) {
-        play(wasLiquidated(f) ? "liquidation" : f.side === "B" ? "buy" : "sell", muted);
+    } else {
+      for (let b = soundedRef.current + 1; b <= upto; b += 1) {
+        const at = fillsAtBar.get(b);
+        if (!at) continue;
+        if (at.some((f) => f.side !== "B")) play("sell", muted);
+        if (at.some(wasLiquidated)) play("liquidation", muted);
       }
+      soundedRef.current = upto;
     }
-    soundedRef.current = upto;
 
     const total = data.points[upto]?.total ?? 0;
-    const step = Math.floor(total / PROFIT_STEP);
-    if (step > milestoneRef.current && total > 0) {
-      milestoneRef.current = step;
+    const reached = Math.max(Math.floor(total / FANFARE_AT), 0);
+    if (upto === 0) milestoneRef.current = reached;
+    else if (reached > milestoneRef.current) {
+      milestoneRef.current = reached;
       play("profit", muted);
     }
-
-    if (upto === bars - 1) play("settle", muted);
   }, [cursor, bars, fillsAtBar, muted, data.points, wasLiquidated]);
+
+  /**
+   * The full stop, on the end card rather than on the last bar.
+   *
+   * Fired once per ending. `muted` has to stay a dependency for the current value to
+   * be read, which meant unmuting while the end card was already up re-ran the effect
+   * and sounded the ending a second time, minutes after it happened.
+   */
+  const settled = useRef(false);
+  useEffect(() => {
+    if (!finished) {
+      settled.current = false;
+      return;
+    }
+    if (settled.current) return;
+    settled.current = true;
+    play("settle", muted);
+  }, [finished, muted]);
+
+  /**
+   * A fill lands: wash the chart, float the number.
+   *
+   * Keyed off the bar index rather than the clock, so scrubbing to a bar replays its
+   * fills and a paused chart stays still. The unit is the LABEL, not the fill: a TWAP
+   * puts twenty slices in one bar, and twenty numbers climbing the screen together say
+   * less than two do — so a bar's fills are summed per side before anything is shown.
+   *
+   * A new fill pushes the previous one OUT rather than stacking on it. At eight times
+   * speed a busy wallet lands fills faster than a label can finish leaving, and they
+   * piled up on top of each other; now the outgoing label fades and keeps drifting from
+   * wherever it had got to, which reads as being displaced rather than as two labels
+   * fighting.
+   */
+  useEffect(() => {
+    const at = fillsAtBar.get(cursor);
+    if (!at || at.length === 0) return;
+
+    const grouped = new Map<string, { isBuy: boolean; liq: boolean; usd: number; sz: number }>();
+    for (const f of at) {
+      const liq = wasLiquidated(f);
+      const key = liq ? "liq" : f.side;
+      const held = grouped.get(key) ?? { isBuy: f.side === "B", liq, usd: 0, sz: 0 };
+      held.usd += f.sz * f.px;
+      held.sz += f.sz;
+      grouped.set(key, held);
+    }
+
+    const born: Flash[] = [...grouped.values()].map((v, i) => ({
+      id: (flashId += 1),
+      isBuy: v.isBuy,
+      liq: v.liq,
+      usd: v.usd,
+      px: v.sz > 0 ? v.usd / v.sz : 0,
+      slot: i,
+      phase: "enter",
+      bornAt: 0,
+    }));
+
+    /**
+     * Spawned on the next frame rather than in the effect body.
+     *
+     * Adding to state synchronously here is a cascading render — the effect runs as
+     * part of the commit that moved the bar, so it would immediately schedule another.
+     * It also gives the `enter` phase a frame to be painted from, which is what the
+     * transition eases out of.
+     */
+    let show = 0;
+    const raf = requestAnimationFrame(() => {
+      const bornAt = Date.now();
+      setFlashes((held) => [
+        // Whatever is on screen makes way.
+        ...held.map((f) => ({ ...f, phase: "out" as const, outAt: bornAt })),
+        ...born.map((f) => ({ ...f, bornAt })),
+      ]);
+      show = requestAnimationFrame(() =>
+        setFlashes((held) =>
+          held.map((f) => (f.phase === "enter" ? { ...f, phase: "shown" as const } : f)),
+        ),
+      );
+    });
+
+    return () => {
+      cancelAnimationFrame(raf);
+      cancelAnimationFrame(show);
+    };
+  }, [cursor, fillsAtBar, wasLiquidated]);
+
+  /**
+   * Labels retire themselves, on a clock of their own.
+   *
+   * Driven off each label's own birth time rather than a timeout in the spawn effect,
+   * whose cleanup runs on every bar change — so the moment the replay reached a bar
+   * with no fills, the pending timer was cancelled and the last label sat there for
+   * good. This one leaves on schedule whatever the chart is doing.
+   */
+  useEffect(() => {
+    if (flashes.length === 0) return;
+    const timer = setInterval(() => {
+      const now = Date.now();
+      setFlashes((held) => {
+        let changed = false;
+        const next = held.map((f) => {
+          if (f.phase !== "shown" || now - f.bornAt < FLASH_MS) return f;
+          changed = true;
+          return { ...f, phase: "out" as const, outAt: now };
+        });
+        // Returning the same array when nothing expired keeps this from re-rendering
+        // the chart every tick.
+        return changed ? next : held;
+      });
+    }, 120);
+    return () => clearInterval(timer);
+  }, [flashes.length]);
 
   /* ----------------------------------------------------------- the clock */
 
@@ -507,11 +642,11 @@ export function Replay({ data }: { data: ReplayData }) {
 
   useEffect(() => {
     if (!playing || bars === 0) return;
-    if (cursorRef.current >= bars - 1) {
-      setPlaying(false);
-      setFinished(true);
-      return;
-    }
+    /**
+     * No short-circuit for a cursor already on the last bar: pressing play there runs
+     * that bar's own step, so the final candle forms like every other before the card
+     * lands, instead of the replay ending on a jump.
+     */
 
     let raf = 0;
     let previous = performance.now();
@@ -564,6 +699,7 @@ export function Replay({ data }: { data: ReplayData }) {
     cursorRef.current = 0;
     setCursor(0);
     setFinished(false);
+    setFlashes([]);
     paintedRef.current = -1;
     soundedRef.current = -1;
     milestoneRef.current = 0;
@@ -585,12 +721,10 @@ export function Replay({ data }: { data: ReplayData }) {
   );
 
   const toggleMute = useCallback(() => {
-    setMuted((m) => {
-      writeMuted(!m);
-      // Unmuting plays one tick so it is obvious the sound is now on.
-      if (m) play("buy", false);
-      return !m;
-    });
+    const next = !readMuted();
+    writeMuted(next);
+    window.dispatchEvent(new Event("runback-mute"));
+    if (!next) play("buy", false);
   }, []);
 
   /* ------------------------------------------------------------ keyboard */
@@ -602,13 +736,18 @@ export function Replay({ data }: { data: ReplayData }) {
       if (e.key === " ") {
         e.preventDefault();
         toggle();
+      } else if (e.key === "Escape" && onClose) {
+        e.preventDefault();
+        onClose();
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
         setPlaying(false);
+        setFinished(false);
         setCursor((c) => Math.max(0, c - (e.shiftKey ? 25 : 5)));
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
         setPlaying(false);
+        setFinished(false);
         setCursor((c) => Math.min(bars - 1, c + (e.shiftKey ? 25 : 5)));
       } else if (e.key.toLowerCase() === "m") {
         toggleMute();
@@ -618,7 +757,7 @@ export function Replay({ data }: { data: ReplayData }) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [toggle, toggleMute, restart, bars]);
+  }, [toggle, toggleMute, restart, bars, onClose]);
 
   /* -------------------------------------------------------------- render */
 
@@ -635,55 +774,23 @@ export function Replay({ data }: { data: ReplayData }) {
       .sort((a, b) => a.time - b.time);
   }, [data.fills]);
 
-  const recent = useMemo(() => {
-    const out: {
-      key: string;
-      isBuy: boolean;
-      liq: boolean;
-      dir: string;
-      usd: number;
-      px: number;
-    }[] = [];
-    /**
-     * Bounded to a short trailing window and stopped as soon as it has enough.
-     *
-     * Walking back a twenty-fourth of the chart and collecting every fill in it meant a
-     * bar holding four hundred TWAP slices built a four-hundred-entry array on every
-     * frame, to then throw all but the last two away.
-     */
-    const from = Math.max(0, cursor - Math.min(24, Math.ceil(bars / 24)));
-    for (let b = cursor; b >= from && out.length < 2; b -= 1) {
-      const at = fillsAtBar.get(b);
-      if (!at) continue;
-      for (let i = at.length - 1; i >= 0 && out.length < 2; i -= 1) {
-        const f = at[i]!;
-        out.push({
-          key: String(f.tid),
-          isBuy: f.side === "B",
-          liq: wasLiquidated(f),
-          dir: f.dir,
-          usd: f.sz * f.px,
-          px: f.px,
-        });
-      }
-    }
-    out.reverse();
-    return out;
-  }, [cursor, bars, fillsAtBar, wasLiquidated]);
-
   return (
-    <div className="flex flex-col gap-3">
+    <div className="hl-fade flex flex-col gap-3">
       <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_272px]">
         {/* --------------------------------------------------- chart column */}
         <div className="flex min-w-0 flex-col gap-3">
-          <Panel
-            label={undefined}
-            flush
-            className="min-w-0"
-          >
-            {/* The market header, the way the terminal sits one above its chart. */}
+          <Panel flush className="min-w-0">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/5 px-4 py-3.5">
-              <div className="flex items-center gap-2.5">
+              <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+                {onClose && (
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="rb-press inline-flex h-11 items-center text-mini text-muted hover:text-tx"
+                  >
+                    ← Positions
+                  </button>
+                )}
                 <CoinIcon coin={data.coin} label={data.label} size={20} />
                 <span className="text-lead leading-none text-title">{data.label}</span>
                 <span
@@ -692,8 +799,12 @@ export function Replay({ data }: { data: ReplayData }) {
                 >
                   {data.side}
                 </span>
+                <span className="inline-flex items-center gap-1.5 text-mini text-faint">
+                  <VenueMark id={data.venue} size={14} />
+                  {data.venueName}
+                </span>
                 {data.closedByLiquidation && (
-                  <span className="rounded-[4px] bg-error/15 px-1.5 py-0.5 text-micro tracking-[0.08em] text-error">
+                  <span className="rounded-[4px] bg-loss/15 px-1.5 py-0.5 text-micro tracking-[0.08em] text-loss">
                     LIQUIDATED
                   </span>
                 )}
@@ -703,7 +814,7 @@ export function Replay({ data }: { data: ReplayData }) {
                   </span>
                 )}
                 <span className="hidden text-mini text-faint sm:inline">
-                  {shortAddress(data.wallet, 6)} · {held} · {bars} × {data.interval}
+                  {held} · {bars} × {data.interval}
                 </span>
               </div>
 
@@ -718,25 +829,75 @@ export function Replay({ data }: { data: ReplayData }) {
               </div>
             </div>
 
+            {data.venue === "jupiter" && (
+              <p className="border-b border-white/5 px-4 py-2 text-mini text-faint">
+                Fills are Jupiter&apos;s. Bars are Hyperliquid&apos;s book for the same asset.
+              </p>
+            )}
+
             <div className="relative">
               <div ref={priceRef} className="h-[360px] w-full sm:h-[460px]" />
 
-              <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1.5">
-                {recent.map((f) => (
+              {/*
+                A fill announcing itself, the way Trickshot's does: the chart washes in
+                the fill's colour and a large label floats at the top centre, where the
+                price action — which sits in the lower two thirds — is not covered.
+                A new fill displaces the last; nothing stacks.
+              */}
+              <div className="pointer-events-none absolute inset-0 overflow-hidden">
+                {/* Only an arriving fill washes the chart. Leaving ones would stack
+                    their gradients and hold the screen bright. */}
+                {(() => {
+                  const arriving = flashes.filter((f) => f.phase !== "out");
+                  // Only a bar carrying both signs needs separating; one that does not
+                  // stays centred, so the ordinary fill looks untouched.
+                  const split =
+                    arriving.some((f) => f.isBuy) && arriving.some((f) => !f.isBuy);
+                  return arriving.map((f) => (
+                    <div
+                      key={f.id}
+                      className="replay-wash absolute inset-0"
+                      style={{
+                        background: `radial-gradient(ellipse at ${
+                          split ? (f.isBuy ? "right" : "left") : "center"
+                        }, ${
+                          f.liq
+                            ? "rgba(151,252,228,0.20)"
+                            : f.isBuy
+                              ? "rgba(80,210,193,0.20)"
+                              : "rgba(237,112,136,0.20)"
+                        }, transparent 70%)`,
+                      }}
+                    />
+                  ));
+                })()}
+                {flashes.map((f) => (
                   <div
-                    key={f.key}
-                    className="hl-rise rounded-[6px] px-2 py-1 text-mini backdrop-blur-[2px]"
+                    key={`t${f.id}`}
+                    onTransitionEnd={(e) => {
+                      if (e.propertyName !== "opacity" || f.phase !== "out") return;
+                      setFlashes((held) => held.filter((x) => x.id !== f.id));
+                    }}
                     style={{
-                      background: f.liq
-                        ? "#97fce41f"
-                        : f.isBuy
-                          ? "#50d2c11f"
-                          : "#ed70881f",
+                      left: "50%",
+                      top: 34 + f.slot * 42,
+                      opacity: f.phase === "shown" ? 1 : 0,
+                      transform:
+                        f.phase === "enter"
+                          ? "translate(-50%, 14px) scale(0.94)"
+                          : f.phase === "shown"
+                            ? "translate(-50%, 0) scale(1)"
+                            : "translate(-50%, -30px) scale(1)",
                       color: f.liq ? ACCENT : f.isBuy ? UP : DOWN,
                     }}
+                    className="replay-flash absolute whitespace-nowrap text-[22px] font-semibold leading-none tracking-[-0.02em]"
                   >
-                    {f.liq ? "LIQUIDATED · " : ""}
-                    {f.dir} · {signedUsd(f.usd).slice(1)} @ {price(f.px)}
+                    {f.liq
+                      ? `LIQUIDATED ${usdCompact(f.usd)}`
+                      : `${usdCompact(f.usd)} ${f.isBuy ? "BUY" : "SELL"}`}
+                    <span className="ml-2 text-[15px] font-bold text-muted">
+                      @ {price(f.px)}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -758,7 +919,7 @@ export function Replay({ data }: { data: ReplayData }) {
                  */
                 <div className="hl-fade pointer-events-none absolute inset-0 flex items-center justify-center bg-ground/80 backdrop-blur-[2px]">
                   <div className="flex flex-col items-center gap-3">
-                    <span className="text-micro tracking-[0.24em] text-faint">
+                    <span className="text-micro tracking-[0.12em] text-faint">
                       {data.closedByLiquidation ? "LIQUIDATED" : "CLOSED"}
                     </span>
 
@@ -804,12 +965,6 @@ export function Replay({ data }: { data: ReplayData }) {
 
             {/* ------------------------------------------------- transport */}
             <div className="flex flex-wrap items-center gap-2 border-t border-white/5 px-4 py-3">
-              {/*
-                A transport, in the order a transport goes.
-                The old row had one button that changed its own meaning depending on where
-                the playhead was, so there was no way to go back to the start without
-                dragging the scrubber to zero and guessing. Restart, step, play, step.
-              */}
               <div className="flex items-center gap-0.5 rounded-full border border-white/8 bg-inset/30 p-1">
                 <Ctl onClick={restart} label="Restart" hint="R">
                   <SkipIcon />
@@ -834,16 +989,17 @@ export function Replay({ data }: { data: ReplayData }) {
               <div
                 role="group"
                 aria-label="Playback speed"
-                className="grid h-8 grid-cols-4 items-stretch overflow-hidden rounded-full border border-white/8 bg-inset/30 p-[3px]"
+                className="grid h-11 grid-cols-4 items-stretch overflow-hidden rounded-full border border-white/8 bg-inset/30 p-[3px]"
               >
                 {SPEEDS.map((sp) => (
                   <button
                     key={sp}
+                    type="button"
                     onClick={() => setSpeed(sp)}
                     aria-pressed={speed === sp}
-                    className={`w-[36px] rounded-full text-mini leading-none transition-colors duration-150 ${
+                    className={`rb-press min-w-11 rounded-full text-mini leading-none ${
                       speed === sp
-                        ? "bg-accent-soft text-accent-text"
+                        ? "bg-mint-soft text-mint-text"
                         : "text-faint hover:text-tx"
                     }`}
                   >
@@ -853,11 +1009,12 @@ export function Replay({ data }: { data: ReplayData }) {
               </div>
 
               <button
+                type="button"
                 onClick={toggleMute}
                 title={muted ? "Unmute (M)" : "Mute (M)"}
                 aria-label={muted ? "Unmute" : "Mute"}
-                className={`grid h-8 w-8 place-items-center rounded-full border border-white/8 transition-colors duration-150 hover:border-white/16 ${
-                  muted ? "text-faint" : "text-accent"
+                className={`rb-press grid size-11 place-items-center rounded-full border border-white/8 hover:border-white/16 ${
+                  muted ? "text-faint" : "text-mint"
                 }`}
               >
                 <SpeakerIcon muted={muted} />
@@ -870,6 +1027,7 @@ export function Replay({ data }: { data: ReplayData }) {
                 value={cursor}
                 onChange={(e) => {
                   setPlaying(false);
+                  setFinished(false);
                   setCursor(Number(e.target.value));
                 }}
                 className="h-1 min-w-[110px] flex-1 accent-[#97fce4]"
@@ -914,7 +1072,7 @@ export function Replay({ data }: { data: ReplayData }) {
             </dl>
           </Panel>
 
-          <Export data={data} />
+          <Export data={data} speed={speed} />
         </div>
       </div>
 
@@ -997,13 +1155,14 @@ function Ctl({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       title={`${label} (${hint})`}
       aria-label={label}
-      className={`grid h-7 place-items-center rounded-full transition-colors duration-150 ${
+      className={`rb-press grid size-11 place-items-center rounded-full ${
         primary
-          ? "w-10 bg-accent-soft text-accent-text hover:brightness-105"
-          : "w-8 text-muted hover:bg-inset hover:text-tx"
+          ? "w-12 bg-mint-soft text-mint-text hover:brightness-105"
+          : "text-muted hover:bg-inset hover:text-tx"
       }`}
     >
       {children}
@@ -1085,12 +1244,21 @@ function SpeakerIcon({ muted }: { muted: boolean }) {
  * clip is not a 16:9 one with the sides taken off. The type scales differently and the
  * fill labels move to the other edge of the chart.
  */
-function Export({ data }: { data: ReplayData }) {
+function Export({ data, speed }: { data: ReplayData; speed: number }) {
   const [shape, setShape] = useState<Shape>("landscape");
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const cancelled = useRef(false);
+
+  /**
+   * A clip runs exactly as long as the replay does at the current speed — every bar
+   * held the same time — so the estimate is arithmetic, and a trade that would run
+   * past the ceiling is refused up front rather than smeared to fit. Raising the
+   * speed is how it fits, which is Trickshot's answer to the same wall.
+   */
+  const seconds = (data.candles.length * STEP_MS) / speed / 1000 + OUTRO_SECONDS;
+  const tooLong = seconds > MAX_CLIP_SECONDS;
 
   const run = useCallback(async () => {
     setError(null);
@@ -1100,6 +1268,7 @@ function Export({ data }: { data: ReplayData }) {
     try {
       const out = await exportClip(data, {
         shape,
+        speed,
         onProgress: setProgress,
         cancelled: () => cancelled.current,
       });
@@ -1110,7 +1279,7 @@ function Export({ data }: { data: ReplayData }) {
       setBusy(false);
       setProgress(0);
     }
-  }, [data, shape]);
+  }, [data, shape, speed]);
 
   return (
     <Panel label="EXPORT">
@@ -1119,10 +1288,12 @@ function Export({ data }: { data: ReplayData }) {
           {(Object.keys(FORMATS) as Shape[]).map((s) => (
             <button
               key={s}
+              type="button"
               onClick={() => setShape(s)}
               disabled={busy}
-              className={`rounded-full py-1.5 text-mini font-medium transition-colors duration-150 ${
-                shape === s ? "bg-accent-soft text-accent-text" : "text-faint hover:text-tx"
+              aria-pressed={shape === s}
+              className={`rb-press min-h-11 rounded-full py-2 text-mini font-medium ${
+                shape === s ? "bg-mint-soft text-mint-text" : "text-faint hover:text-tx"
               }`}
             >
               {FORMATS[s].label}
@@ -1131,8 +1302,11 @@ function Export({ data }: { data: ReplayData }) {
         </div>
 
         <button
+          type="button"
           onClick={busy ? () => (cancelled.current = true) : run}
-          className="h-10 rounded-full bg-accent-soft text-body font-medium text-accent-text transition-[filter] duration-150 hover:brightness-110"
+          disabled={!busy && tooLong}
+          aria-label={busy ? "Cancel export" : "Export MP4"}
+          className="rb-press h-11 rounded-full bg-mint-soft text-body font-medium text-mint-text hover:brightness-110"
         >
           {busy ? `Cancel · ${Math.round(progress * 100)}%` : "Export MP4"}
         </button>
@@ -1140,17 +1314,25 @@ function Export({ data }: { data: ReplayData }) {
         {busy ? (
           <div className="h-[3px] w-full overflow-hidden rounded-full bg-inset">
             <div
-              className="h-full bg-accent transition-[width] duration-150"
+              className="h-full bg-mint transition-[width] duration-150"
               style={{ width: `${progress * 100}%` }}
             />
           </div>
         ) : (
           <p className="text-micro text-faint">
-            {FORMATS[shape].w}&times;{FORMATS[shape].h}
+            {FORMATS[shape].w}&times;{FORMATS[shape].h} · ~{Math.round(seconds)}s at{" "}
+            {speed}&times;
           </p>
         )}
 
-        {error && <p className="text-mini text-error">{error}</p>}
+        {tooLong && !busy && (
+          <p className="text-mini text-mint">
+            That clip would run ~{Math.round(seconds)}s, past the {MAX_CLIP_SECONDS}s
+            ceiling — raise the replay speed and it will fit.
+          </p>
+        )}
+
+        {error && <p className="text-mini text-loss">{error}</p>}
       </div>
     </Panel>
   );

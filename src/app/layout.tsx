@@ -3,23 +3,35 @@ import { Inter } from "next/font/google";
 import { MarketProvider } from "@/components/MarketProvider";
 import { Nav } from "@/components/Nav";
 import { Ticker } from "@/components/Ticker";
+import { siteUrl } from "@/lib/site";
 import "./globals.css";
 
 const inter = Inter({
   subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  weight: ["400", "500", "600", "700"],
   variable: "--font-inter",
   display: "swap",
 });
 
+const DESCRIPTION =
+  "Run back any trade. Paste a wallet on Hyperliquid, Lighter, RiseX, Pacifica, Drift, dYdX or Jupiter. Replay a position as a clip.";
+
 export const metadata: Metadata = {
-  title: "Runback",
-  description:
-    "Paste a wallet on Hyperliquid, Lighter, RiseX, Drift, Pacifica, dYdX or Jupiter. Browse its trades, replay one as a video you can post.",
+  metadataBase: siteUrl(),
+  title: { default: "Runback", template: "%s" },
+  description: DESCRIPTION,
+  applicationName: "Runback",
   openGraph: {
     title: "Runback",
-    description: "Run it back. Positions on the perp books that actually publish a tape.",
+    description: "Run back any trade. Paste a wallet, replay a position as a clip.",
     type: "website",
+    siteName: "Runback",
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Runback",
+    description: "Run back any trade. Paste a wallet, replay a position as a clip.",
   },
 };
 
@@ -35,13 +47,20 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://indexer.dydx.trade" />
         <link rel="preconnect" href="https://perps-api.jup.ag" />
         <link rel="preconnect" href="https://api.rise.trade" />
+        <link rel="preconnect" href="https://data.velocity.exchange" />
+        <link rel="preconnect" href="https://api.pacifica.fi" />
       </head>
       <body className={inter.className}>
         <MarketProvider>
           <div className="flex h-dvh flex-col overflow-hidden">
             <Nav />
             <Ticker />
-            <div className="scrollers min-h-0 flex-1 overflow-y-auto">{children}</div>
+            <div className="scrollers min-h-0 flex-1 overflow-y-auto">
+              {children}
+              <footer className="mx-auto w-full max-w-[1120px] px-5 pb-10 pt-16 text-mini text-faint">
+                Runback · MIT
+              </footer>
+            </div>
           </div>
         </MarketProvider>
       </body>

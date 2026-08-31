@@ -24,5 +24,15 @@ export interface VenueAdapter {
   isAddress: (v: string) => boolean;
 }
 
-const n = (v: unknown): number => (typeof v === "number" ? v : Number(v ?? 0));
+/**
+ * Every venue reports numbers as decimal strings, and any of them can be absent,
+ * null or malformed on a single row. `Number("")` is 0 but `Number("n/a")` is NaN,
+ * and one NaN reaching a running total silently turns an entire episode's PnL,
+ * average entry and drawdown into NaN. Non-finite parses become 0 here so a bad
+ * row costs that row rather than the catalogue.
+ */
+const n = (v: unknown): number => {
+  const x = typeof v === "number" ? v : Number(v ?? 0);
+  return Number.isFinite(x) ? x : 0;
+};
 export { n };

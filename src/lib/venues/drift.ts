@@ -64,7 +64,18 @@ function quoteAmt(v: unknown): number {
   return x;
 }
 
+/** Whichever side of the trade this account was actually on. */
+function feeFor(t: DriftTrade, account: string): number {
+  if (t.taker === account) return Math.abs(n(t.takerFee)) / 1e6;
+  if (t.maker === account) return Math.abs(n(t.makerFee)) / 1e6;
+  // Neither field names us: no basis for attributing either fee.
+  return 0;
+}
+
 async function first<T>(path: string, signal?: AbortSignal): Promise<T> {
+  if (typeof window !== "undefined") {
+    return json<T>("drift", path, { signal });
+  }
   let last: Error | null = null;
   for (const origin of DRIFT_ORIGINS) {
     try {
@@ -109,53 +120,78 @@ export const adapter: VenueAdapter = {
     const maxPages = opts.maxPages ?? 20;
     const legs: Leg[] = [];
     let page: string | undefined;
+    /**
+     * A pasted Solana key can be either the authority that owns sub-accounts or a
+     * user account itself, and it is routinely both: the authority trades from its
+     * own account as well. Replacing the pasted key with the sub-accounts it owns
+     * silently dropped every trade booked on the key that was actually typed in.
+     */
     let accounts = [user];
     try {
       const auth = await first<unknown>(`/authority/${user}/accounts`, opts.signal);
       const found = records<{ pubkey?: string; publicKey?: string; user?: string }>(auth)
         .map((a) => a.pubkey ?? a.publicKey ?? a.user)
         .filter((x): x is string => !!x);
-      if (found.length) accounts = found;
+      if (found.length) accounts = [...new Set([...found, user])];
     } catch {
       // Authority lookup is optional; the pasted key may already be a user account.
     }
 
     for (const account of accounts) {
       page = undefined;
-      for (let i = 0; i < maxPages; i += 1) {
-        const q: string = page ? `?page=${encodeURIComponent(page)}` : "";
-        const raw = await first<{ records?: DriftTrade[]; meta?: { nextPage?: string } }>(
-          `/user/${account}/trades${q}`,
-          opts.signal,
-        );
-        const rows = records<DriftTrade>(raw);
-        if (rows.length === 0) break;
-        for (const t of rows) {
-          const time = asMs(t.ts ?? t.timestamp);
-          if (time < startTime || time > endTime) continue;
-          const base = baseAmt(t.baseAssetAmountFilled);
-          const quote = quoteAmt(t.quoteAssetAmountFilled);
-          const px = n(t.price) || n(t.oraclePrice) || (base > 0 ? quote / base : 0);
-          if (px <= 0 || base <= 0) continue;
-          const signed = n(t.baseAssetAmountFilled);
-          const buy = signed >= 0;
-          const coin = t.marketSymbol ?? t.symbol ?? `M${t.marketIndex ?? 0}`;
-          const expl = `${t.action ?? ""} ${t.actionExplanation ?? ""}`.toLowerCase();
-          legs.push({
-            coin,
-            px,
-            sz: Math.abs(base),
-            buy,
-            time,
-            fee: Math.abs(n(t.takerFee) + n(t.makerFee)) / 1e6,
-            hash: t.txSig ?? `${account}-${time}`,
-            tid: t.txSigIndex ?? time,
-            liquidated: expl.includes("liquid"),
-          });
+      try {
+        for (let i = 0; i < maxPages; i += 1) {
+          const q: string = page ? `?page=${encodeURIComponent(page)}` : "";
+          const raw = await first<{ records?: DriftTrade[]; meta?: { nextPage?: string } }>(
+            `/user/${account}/trades${q}`,
+            opts.signal,
+          );
+          const rows = records<DriftTrade>(raw);
+          if (rows.length === 0) break;
+          let oldest = Infinity;
+          for (const t of rows) {
+            const time = asMs(t.ts ?? t.timestamp);
+            if (time > 0) oldest = Math.min(oldest, time);
+            if (time < startTime || time > endTime) continue;
+            const base = baseAmt(t.baseAssetAmountFilled);
+            const quote = quoteAmt(t.quoteAssetAmountFilled);
+            const px = n(t.price) || n(t.oraclePrice) || (base > 0 ? quote / base : 0);
+            if (px <= 0 || base <= 0) continue;
+            const signed = n(t.baseAssetAmountFilled);
+            const buy = signed >= 0;
+            const coin = t.marketSymbol ?? t.symbol ?? `M${t.marketIndex ?? 0}`;
+            const expl = `${t.action ?? ""} ${t.actionExplanation ?? ""}`.toLowerCase();
+            legs.push({
+              coin,
+              px,
+              sz: Math.abs(base),
+              buy,
+              time,
+              /**
+               * A trade record carries BOTH sides' fees, and this wallet only paid
+               * one of them. Summing them billed the counterparty's fee to whoever
+               * was being looked up, which understates every net figure on the page.
+               */
+              fee: feeFor(t, account),
+              hash: t.txSig ?? `${account}-${time}`,
+              tid: t.txSigIndex ?? time,
+              liquidated: expl.includes("liquid"),
+            });
+          }
+          opts.onPage?.(fillsFromLegs(legs, user));
+          page = raw.meta?.nextPage;
+          if (!page) break;
+          // Newest first, so a page entirely older than the window ends the walk.
+          if (oldest < startTime) break;
         }
-        opts.onPage?.(fillsFromLegs(legs, user));
-        page = raw.meta?.nextPage;
-        if (!page) break;
+      } catch (err) {
+        /**
+         * An authority's account list can name accounts this host has no history
+         * for, and one 404 must not sink the accounts that did answer. With a
+         * single account there is nothing to salvage, so the error IS the answer
+         * and the page should say so.
+         */
+        if (accounts.length === 1) throw err;
       }
     }
     return fillsFromLegs(legs, user);
@@ -181,7 +217,9 @@ export const adapter: VenueAdapter = {
           n: n(b.trades ?? b.n),
         } satisfies Candle;
       })
-      .filter((b) => b.t > 0)
+      // The host does not always honour startTs/endTs. Bars outside the window
+      // lengthen the replay and slide every fill marker off its bar.
+      .filter((b) => b.t > 0 && b.t >= startTime && b.t <= endTime)
       .sort((a, b) => a.t - b.t);
   },
 };

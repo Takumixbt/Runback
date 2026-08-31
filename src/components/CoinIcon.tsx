@@ -1,6 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+
+function useHydrated() {
+  return useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
+}
 
 const BASE = "https://app.hyperliquid.xyz/coins";
 
@@ -57,16 +65,14 @@ export function CoinIcon({
 }) {
   const tries = useMemo(() => candidates(coin, label), [coin, label]);
   const [attempt, setAttempt] = useState(0);
-  const [armed, setArmed] = useState(false);
+  const armed = useHydrated();
   const img = useRef<HTMLImageElement>(null);
-
-  useEffect(() => {
-    setArmed(true);
-  }, []);
-
-  useEffect(() => {
+  const identity = `${coin}\0${label}`;
+  const [seen, setSeen] = useState(identity);
+  if (seen !== identity) {
+    setSeen(identity);
     setAttempt(0);
-  }, [coin, label]);
+  }
 
   useEffect(() => {
     if (!armed) return;
@@ -105,7 +111,7 @@ export function CoinIcon({
         if (!armed) return;
         setAttempt((a) => a + 1);
       }}
-      className="shrink-0 rounded-full"
+      className="shrink-0 rounded-full outline outline-1 outline-white/10"
       style={{ width: size, height: size }}
     />
   );

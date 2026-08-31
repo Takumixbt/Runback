@@ -1,9 +1,11 @@
 import "server-only";
 import { unstable_cache } from "next/cache";
-import { fills, labelFor, markets, type Market } from "./hl";
+import { labelFor, type Market } from "./hl";
 import { returnOf } from "./format";
 import { episodes, pickWindow, type Episode } from "./episodes";
-import { NOTABLE, type Notable } from "./notable";
+import { GALLERY, NOTABLE, type Notable } from "./notable";
+import { adapter } from "./venues";
+import type { VenueId } from "./venue";
 
 /**
  * The front page cards: who, their best position, and their worst.
@@ -13,27 +15,13 @@ import { NOTABLE, type Notable } from "./notable";
  * liquidation at the top of a list headed "best", which is how the earlier version managed
  * to present somebody's worst day as their highlight.
  *
- * Server-side because it is shared work: one `userFills` walk per trader, done once for
+ * Server-side because it is shared work: one fills walk per trader, done once for
  * everybody on a timer, rather than every visitor spending their own quota on the same few
  * wallets. It is the only server-side read in the app.
  */
 
-/**
- * The whole record, not a window onto it.
- *
- * A 400-day lookback was cutting off exactly what the section exists to show. MEASURED on
- * James Wynn: the window opened on 2025-07-22 and his account starts 2025-03-13, so the
- * BTC position that made $12.6M and the one that lost $20.6M five days later both fell
- * outside it, and the card advertised a $135K kPEPE trade as his best. Those two are the
- * whole reason anyone knows his name.
- *
- * Reading from zero costs a few more pages on a cache that lasts an hour, and a best and
- * worst on record does not change often enough to justify anything shorter. Old does not
- * mean undrawable either: 4h bars reach back over two years, so both of Wynn's are still
- * replayable.
- */
 const SINCE = 0;
-const MAX_PAGES = 12;
+const MAX_PAGES = 6;
 
 const CONCURRENCY = 3;
 const STAGGER_MS = 200;
@@ -91,13 +79,28 @@ function highlight(ep: Episode, known: Map<string, Market>): Highlight {
   };
 }
 
+/** Per-wallet budget. The gallery must not stall the homepage on a slow or throttled book. */
+const CARD_MS = 8_000;
+
+const VENUE_ORDER: Record<VenueId, number> = {
+  hyperliquid: 0,
+  lighter: 1,
+  risex: 2,
+  pacifica: 3,
+  drift: 4,
+  jupiter: 5,
+  dydx: 6,
+};
+
 async function card(who: Notable, known: Map<string, Market>, now: number): Promise<TraderCard> {
   const blank: TraderCard = { ...who, best: null, worst: null, positions: 0, net: 0 };
   try {
-    const raw = await fills(who.address, SINCE, now, { maxPages: MAX_PAGES });
+    const raw = await adapter(who.venue).fills(who.address, SINCE, now, {
+      maxPages: MAX_PAGES,
+      signal: AbortSignal.timeout(CARD_MS),
+    });
     if (raw.length === 0) return blank;
 
-    /** Only what can actually be watched. A card that opens onto nothing is worse than none. */
     const eps = episodes(raw, who.address).filter((e) => !e.open && pickWindow(e.start, e.end, now));
     if (eps.length === 0) return blank;
 
@@ -112,56 +115,53 @@ async function card(who: Notable, known: Map<string, Market>, now: number): Prom
       worst: worst.net < 0 ? highlight(worst, known) : null,
     };
   } catch {
-    /**
-     * Re-thrown, not swallowed into a blank card.
-     *
-     * A blank is indistinguishable from "this wallet has no history", so caching one hides
-     * a rate limit for five minutes and the trader just disappears from the page. The
-     * caller drops the whole result instead, which means the next request retries.
-     */
-    throw new Error(`runback: could not read ${who.address}`);
+    return blank;
   }
 }
 
 /**
  * Cached PER TRADER, not per list.
  *
- * One cache entry for the whole list meant one slow or throttled wallet took the others
- * down with it: MEASURED, three of six rendered and the rest simply vanished, because a
- * batch either succeeds whole or is thrown away whole. Machi and CBB are the heaviest
- * reads on the list and were the two that kept losing.
- *
- * Keyed per address, a failure costs only that row, and the next request retries just that
- * row while the others answer from cache. The list fills in over a couple of loads instead
- * of flickering between three names and six.
+ * Keyed per venue + address, so Machi on Hyperliquid and Machi on Lighter are
+ * separate rows, and a miss on one book does not take the other down.
  */
 const cachedCard = unstable_cache(
-  async (address: string): Promise<TraderCard | null> => {
-    const who = NOTABLE.find((n) => n.address === address);
+  async (key: string): Promise<TraderCard | null> => {
+    const [venueId, address] = key.split("|") as [VenueId, string];
+    const who = NOTABLE.find((n) => n.venue === venueId && n.address === address);
     if (!who) return null;
     const now = Date.now();
 
     let known: Map<string, Market>;
     try {
-      known = await markets();
+      known = await adapter(who.venue).markets(AbortSignal.timeout(CARD_MS));
     } catch {
       known = new Map();
     }
 
     const result = await card(who, known, now);
-    // Nothing worth showing is not cached, so a throttled read is retried rather than kept.
-    if (!result.best && !result.worst) throw new Error(`runback: empty ${address}`);
+    if (!result.best && !result.worst) return null;
     return result;
   },
-  ["runback:trader"],
+  ["runback:trader:v7"],
   { revalidate: 3600 },
 );
 
 export async function traderCards(): Promise<TraderCard[]> {
-  const cards = await pool(NOTABLE, CONCURRENCY, (n) =>
-    cachedCard(n.address).catch(() => null),
-  );
-  return cards
+  const hl = GALLERY.filter((n) => n.venue === "hyperliquid");
+  const rest = [
+    ...GALLERY.filter((n) => n.venue === "pacifica"),
+    ...GALLERY.filter((n) => n.venue === "lighter" || n.venue === "risex"),
+  ];
+  const load = (rows: Notable[]) =>
+    pool(rows, CONCURRENCY, (n) => cachedCard(`${n.venue}|${n.address}`).catch(() => null));
+
+  const [a, b] = await Promise.all([load(hl), load(rest)]);
+  return [...a, ...b]
     .filter((c): c is TraderCard => c !== null)
-    .sort((a, b) => (b.best?.net ?? 0) - (a.best?.net ?? 0));
+    .sort((a, b) => {
+      const byBook = VENUE_ORDER[a.venue] - VENUE_ORDER[b.venue];
+      if (byBook !== 0) return byBook;
+      return (b.best?.net ?? 0) - (a.best?.net ?? 0);
+    });
 }

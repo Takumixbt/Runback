@@ -12,15 +12,6 @@ export function usdCompact(value: number): string {
   return `$${Math.round(value)}`;
 }
 
-/** $1.24M, $61.4K. Two decimals above a thousand, for figures read against each other. */
-export function capLabel(v: number): string {
-  if (!Number.isFinite(v) || v <= 0) return "$0";
-  if (v >= 1e9) return `$${(v / 1e9).toFixed(2)}B`;
-  if (v >= 1e6) return `$${(v / 1e6).toFixed(2)}M`;
-  if (v >= 1e3) return `$${(v / 1e3).toFixed(1)}K`;
-  return `$${v.toFixed(0)}`;
-}
-
 /**
  * A PnL figure, always carrying its sign.
  *

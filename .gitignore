@@ -7,6 +7,12 @@ build
 .env*
 !.env.example
 .vercel
+
+# Local editor and agent config. Useful on this machine, noise in the repo.
+.cursor/
+CLAUDE.md
+.idea/
+.vscode/
 next-env.d.ts
 tsconfig.tsbuildinfo
 dev.log

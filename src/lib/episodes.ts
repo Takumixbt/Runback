@@ -11,7 +11,7 @@
 
 import type { Candle, Fill } from "./hl";
 import { returnOf } from "./format";
-import { kindOfAddress } from "./venue";
+import { sameIdentity, type VenueId, venue as venueOf } from "./venue";
 
 export interface Episode {
   /** Stable across rebuilds: the coin and the opening fill's trade id. */
@@ -87,11 +87,6 @@ const FLAT = 1e-9;
  */
 const MAX_IDLE_MS = 6 * 3_600_000;
 
-function sameWallet(a: string, b: string): boolean {
-  const kind = kindOfAddress(a);
-  if (kind === "solana") return a === b;
-  return a.toLowerCase() === b.toLowerCase();
-}
 
 /**
  * Split one wallet's fills into episodes, best first.
@@ -214,7 +209,7 @@ export function episodes(all: Fill[], subject?: string): Episode[] {
        * been blown up itself. With no subject given, nothing is flagged, which is the safe
        * default: a wrong badge is worse than a missing one.
        */
-      if (f.liquidatedUser && me && sameWallet(f.liquidatedUser, me)) cur.liquidated = true;
+      if (f.liquidatedUser && me && sameIdentity(f.liquidatedUser, me)) cur.liquidated = true;
       if (f.dir.includes(">")) {
         cur.flipped = true;
         cur.side = "FLIP";
@@ -234,7 +229,7 @@ export function episodes(all: Fill[], subject?: string): Episode[] {
 
       if (Math.abs(pos) < FLAT) {
         // Flat, and the fill that got it there was forced: this is a blow-up.
-        cur.closedByLiquidation = !!(f.liquidatedUser && me && sameWallet(f.liquidatedUser, me));
+        cur.closedByLiquidation = !!(f.liquidatedUser && me && sameIdentity(f.liquidatedUser, me));
         cur.avgEntry = entryQty > 0 ? entryCost / entryQty : f.px;
         cur.net = cur.realized - cur.fees;
         out.push(cur);
@@ -268,7 +263,7 @@ export function episodes(all: Fill[], subject?: string): Episode[] {
 /* ------------------------------------------------------------- intervals */
 
 /** Every interval Hyperliquid actually serves, verified against the live endpoint. */
-export const INTERVALS: { name: string; sec: number }[] = [
+const INTERVALS: { name: string; sec: number }[] = [
   { name: "1m", sec: 60 },
   { name: "3m", sec: 180 },
   { name: "5m", sec: 300 },
@@ -290,7 +285,7 @@ export const INTERVALS: { name: string; sec: number }[] = [
  * thirty, 15m at ninety, 1h at three hundred and 4h at nine hundred all return []; 1d at
  * twelve hundred days returns bars from May 2023. The rule holds exactly.
  */
-export const MAX_CANDLES = 5000;
+const MAX_CANDLES = 5000;
 
 /** Below this a replay is a straight line with two dots on it, so it is not offered. */
 export const MIN_BARS = 25;
@@ -304,10 +299,10 @@ export const MIN_BARS = 25;
  * is what pushes a two-day hold onto 15m bars and a ten-day one onto hourly, which is how
  * anybody would draw those trades by hand.
  */
-export const MAX_BARS = 260;
+const MAX_BARS = 260;
 
 /** Context either side of the trade, so the entry marker is not sitting on bar zero. */
-export const PAD = 0.15;
+const PAD = 0.15;
 
 export interface Window {
   interval: string;
@@ -388,6 +383,8 @@ export interface Replay {
   coin: string;
   label: string;
   wallet: string;
+  venue: VenueId;
+  venueName: string;
   side: Episode["side"];
   interval: string;
   candles: Candle[];
@@ -423,6 +420,7 @@ export function buildReplay(
   label: string,
   wallet: string,
   interval: string,
+  venueId: VenueId,
 ): Replay {
   const points: Point[] = [];
 
@@ -442,9 +440,22 @@ export function buildReplay(
     while (i < ep.fills.length && ep.fills[i]!.time <= bar.t + 1) {
       const f = ep.fills[i]!;
       const signed = f.side === "B" ? f.sz : -f.sz;
-      const growing = Math.abs(qty + signed) > Math.abs(qty);
+      const after = qty + signed;
+      /**
+       * A fill that crosses zero both closes and opens, so it belongs to neither
+       * branch alone. Sized against the old position it reads as growth, and the
+       * growth branch skips `closedPnl`, so a flip dropped the exchange's own
+       * realised number out of the fold entirely: `points` disagreed with
+       * `ep.realized` for the rest of the replay, which is the MISMATCH
+       * `scripts/check.ts` reconciles for. The residual is a new position at this
+       * price, not a blend of the side it replaced.
+       */
+      const flip = qty * after < 0;
 
-      if (growing) {
+      if (flip) {
+        realized += f.closedPnl;
+        avg = f.px;
+      } else if (Math.abs(after) > Math.abs(qty)) {
         const total = Math.abs(qty) + f.sz;
         avg = total > 0 ? (avg * Math.abs(qty) + f.px * f.sz) / total : f.px;
       } else {
@@ -476,6 +487,8 @@ export function buildReplay(
     coin: ep.coin,
     label,
     wallet,
+    venue: venueId,
+    venueName: venueOf(venueId)?.name ?? venueId,
     side: ep.side,
     interval,
     candles,
