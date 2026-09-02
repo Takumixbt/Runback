@@ -1,7 +1,7 @@
 {
   "name": "runback",
   "version": "0.1.0",
-  "description": "Paste a perp wallet. Replay any position. Export the clip.",
+  "description": "Paste a perp wallet, replay a position, export the clip.",
   "author": "Takumi",
   "license": "MIT",
   "private": true,
