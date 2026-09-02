@@ -39,11 +39,14 @@ export function Avatar({
   name,
   src,
   size = 34,
+  eager = false,
 }: {
   address: string;
   name: string;
   src?: string;
   size?: number;
+  /** Gallery faces are above the fold; don't wait for lazy decode. */
+  eager?: boolean;
 }) {
   const [failed, setFailed] = useState(false);
 
@@ -72,7 +75,7 @@ export function Avatar({
         aria-hidden
         width={size}
         height={size}
-        loading="lazy"
+        loading={eager ? "eager" : "lazy"}
         decoding="async"
         className="shrink-0 rounded-full object-cover ring-1 ring-white/10"
         suppressHydrationWarning

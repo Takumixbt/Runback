@@ -1,12 +1,13 @@
 /**
  * Named wallets. The gallery is a subset; the rest still name a wallet page.
  *
- * Every attribution was looked up. Hyperliquid names come from the community
- * address directory, cross-checked against Lookonchain. Pacifica names are the
- * usernames those accounts set on the public leaderboard. Pictures are X
- * avatars when the owner is publicly known. Where a book has no X-famous
- * trader with a published key, the gallery uses the same identity on that
- * book: same 0x, different tape. Empty cards are dropped, not faked.
+ * Ten on the front page, grouped by book: four Hyperliquid, two Lighter, two
+ * Pacifica, two RiseX. Every row is from a public source on that book. Hyperliquid
+ * names come from the community address directory. Pacifica names are usernames
+ * those accounts set on Pacifica's leaderboard. Lighter names are operators who
+ * published a public pool on that book. RiseX does not publish trader names; those
+ * two cards are the all-time PnL leaders on RiseX's own board, shown as truncated
+ * addresses. A name is never copied onto another venue.
  */
 import type { VenueId } from "@/lib/venue";
 
@@ -34,12 +35,6 @@ const AGUILA = {
   name: "AguilaTrades",
   handle: "AguilaTrades",
   avatar: x("1826626444937605121/jwa2reEz"),
-};
-const CBB = {
-  address: "0x49e96e255ba418d08e66c35b588e2f2f3766e1d0",
-  name: "CBB",
-  handle: "Cbb0fe",
-  avatar: x("1872626142034739200/EIM6NL_5"),
 };
 const WYNN = {
   address: "0x5078c2fbea2b2ad61bc840bc023e35fce56bedb6",
@@ -70,30 +65,59 @@ export const NOTABLE: Notable[] = [
   { ...WYNN, venue: "hyperliquid", home: true },
   { ...MACHI, venue: "hyperliquid", home: true },
   { ...AGUILA, venue: "hyperliquid", home: true },
-  { ...CBB, venue: "hyperliquid", home: true },
-
-  { ...WYNN, venue: "lighter", home: true },
-  { ...MACHI, venue: "lighter", home: true },
-
-  { ...AGUILA, venue: "risex", home: true },
-  { ...CBB, venue: "risex", home: true },
+  { ...KANG, venue: "hyperliquid", home: true },
 
   {
-    venue: "pacifica",
-    address: "5RmsTTwkXQgKcTv5BK6CZEjHQMBVLVQVt8po3h5cQabB",
-    name: "monogram",
+    venue: "lighter",
+    address: "0xa5Fd942D4bAdBab4FE84a9E10F565dd40d5f15Ff",
+    name: "Insertive Capital",
     home: true,
   },
+  {
+    venue: "lighter",
+    address: "0x423c026a39FE50069f3d93a0ec2b37Bd7183a411",
+    name: "Guinea Pool",
+    home: true,
+  },
+
+  {
+    venue: "risex",
+    address: "0xbe69e095e738eb7260ad795c554aba288e1f2adc",
+    name: "0xbE69…2ADc",
+    home: true,
+  },
+  {
+    venue: "risex",
+    address: "0x87ff50c06ca6d01165b4f03eee552cf5e3ba7eb3",
+    name: "0x87ff…7eB3",
+    home: true,
+  },
+
   {
     venue: "pacifica",
     address: "9SL9PHbdixQFyMS5npowKXLdXUWwYReHKuyBrFdFCRxc",
     name: "John Locke",
     home: true,
   },
+  {
+    venue: "pacifica",
+    address: "5RmsTTwkXQgKcTv5BK6CZEjHQMBVLVQVt8po3h5cQabB",
+    name: "monogram",
+    home: true,
+  },
 
   { ...ANSEM, venue: "hyperliquid" },
   { ...TATE, venue: "hyperliquid" },
-  { ...KANG, venue: "hyperliquid" },
+  {
+    venue: "lighter",
+    address: "0x6995743591A94894b54552eDECB57acCe8A2F19E",
+    name: "pmalt",
+  },
+  {
+    venue: "lighter",
+    address: "0xED0A47496885CA2f68f35a8851e8e20D2a6312e1",
+    name: "Silentist",
+  },
 ];
 
 export const GALLERY = NOTABLE.filter((n) => n.home);

@@ -115,7 +115,7 @@ export const adapter: VenueAdapter = {
     return out;
   },
   async fills(user, startTime, endTime, opts = {}) {
-    const maxPages = opts.maxPages ?? 20;
+    const maxPages = opts.maxPages ?? 4;
     const known = await books(opts.signal);
     const legs: Leg[] = [];
 

@@ -1,10 +1,10 @@
 /**
- * Lighter. Same 0x as Hyperliquid. Public order books and (when the API allows)
- * account trades by L1 address → account_index.
+ * Lighter. Same 0x as Hyperliquid. Public order books and account history by
+ * L1 address → account_index.
  *
- * Trades carry taker/maker position-before and per-side realised PnL. The docs
- * say auth is required for master/sub accounts; we still try the public read,
- * because that is the product, and surface a clear error if Lighter refuses.
+ * Lighter's `/api/v1/trades` endpoint now requires an auth token for master and
+ * sub-accounts. The Explorer's public Trade logs carry the same execution facts,
+ * so those are the keyless history source used here.
  */
 
 import { fillsFromLegs, type Leg } from "@/lib/fill";
@@ -13,19 +13,26 @@ import { n, type VenueAdapter } from "@/lib/adapter";
 import { isAddress } from "@/lib/hl";
 import type { Candle, Market } from "@/lib/hl";
 
+const EXPLORER_ORIGIN = "https://explorer.elliot.ai";
+const LOG_PAGE = 100;
+const FEE_SCALE = 1_000_000;
+
 const INTERVAL: Record<string, string> = {
   "1m": "1m",
   "3m": "5m",
   "5m": "5m",
   "15m": "15m",
-  "30m": "15m",
+  "30m": "30m",
   "1h": "1h",
   "2h": "1h",
   "4h": "4h",
   "8h": "4h",
-  "12h": "4h",
+  "12h": "12h",
   "1d": "1d",
 };
+
+/** Lighter serves at most 500 candles per call. Our windows never ask for more. */
+const COUNT_BACK = 500;
 
 interface Book {
   symbol: string;
@@ -34,24 +41,26 @@ interface Book {
   status: string;
 }
 
-interface Trade {
-  trade_id: number;
-  tx_hash: string;
-  type: string;
-  market_id: number;
-  size: string;
-  price: string;
-  timestamp: number;
-  transaction_time?: number;
-  ask_account_id: number;
-  bid_account_id: number;
-  is_maker_ask: boolean;
-  taker_position_size_before: string;
-  maker_position_size_before: string;
-  ask_account_pnl: string;
-  bid_account_pnl: string;
-  taker_fee?: number;
-  maker_fee?: number;
+interface ExplorerTrade {
+  trade_id?: number | string;
+  trade_id_str?: number | string;
+  trade_type?: number | string;
+  market_index?: number | string;
+  size?: number | string;
+  price?: number | string;
+  is_taker_ask?: boolean | number | string;
+  taker_account_index?: number | string;
+  maker_account_index?: number | string;
+  taker_fee?: number | string;
+  maker_fee?: number | string;
+}
+
+interface ExplorerLog {
+  tx_type?: string;
+  hash?: string;
+  time?: string | number;
+  pubdata_type?: string;
+  pubdata?: { trade_pubdata?: ExplorerTrade };
 }
 
 function ms(t: number): number {
@@ -61,7 +70,45 @@ function ms(t: number): number {
   return t * 1000;
 }
 
+function timeMs(value: unknown): number {
+  if (typeof value === "string" && !/^\d+(?:\.\d+)?$/.test(value.trim())) {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return ms(n(value));
+}
+
+function truthy(value: unknown): boolean {
+  return value === true || value === 1 || value === "1" || value === "true";
+}
+
+function hashTid(value: string): number {
+  let hash = 2_166_136_261;
+  for (const char of value) hash = Math.imul(hash ^ char.charCodeAt(0), 16_777_619);
+  return hash >>> 0 || 1;
+}
+
+async function explorerLogs(index: number, offset: number, signal?: AbortSignal): Promise<ExplorerLog[]> {
+  const q = new URLSearchParams({
+    limit: String(LOG_PAGE),
+    offset: String(offset),
+    pub_data_type: "Trade",
+  });
+  const res = await fetch(`${EXPLORER_ORIGIN}/api/accounts/${index}/logs?${q}`, {
+    signal,
+    cache: "no-store",
+    headers: { accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(`lighter explorer ${res.status}`);
+  const body = (await res.json()) as unknown;
+  return Array.isArray(body) ? (body as ExplorerLog[]) : [];
+}
+
+let booksMemo: { at: number; data: Map<number, Book> } | null = null;
+const BOOKS_MS = 60_000;
+
 async function books(signal?: AbortSignal): Promise<Map<number, Book>> {
+  if (booksMemo && Date.now() - booksMemo.at < BOOKS_MS) return booksMemo.data;
   const raw = await json<{ order_books: Book[] }>(
     "lighter",
     "/api/v1/orderBooks?filter=perp",
@@ -72,6 +119,7 @@ async function books(signal?: AbortSignal): Promise<Map<number, Book>> {
     if (b.status && b.status !== "active") continue;
     out.set(b.market_id, b);
   }
+  booksMemo = { at: Date.now(), data: out };
   return out;
 }
 
@@ -90,27 +138,40 @@ async function accountIndex(user: string, signal?: AbortSignal): Promise<number[
   return idx;
 }
 
-function asLeg(t: Trade, index: number, coin: string): Leg | null {
-  const isAsk = t.ask_account_id === index;
-  const isBid = t.bid_account_id === index;
-  if (!isAsk && !isBid) return null;
-  const weMaker = isAsk ? t.is_maker_ask : !t.is_maker_ask;
+function asLogLeg(log: ExplorerLog, index: number, known: Map<number, Book>): Leg | null {
+  const t = log.pubdata?.trade_pubdata;
+  if (!t) return null;
+  const account = String(index);
+  const taker = String(t.taker_account_index ?? "") === account;
+  const maker = String(t.maker_account_index ?? "") === account;
+  if (!taker && !maker) return null;
+
+  const marketId = n(t.market_index);
+  const book = known.get(marketId);
+  if (!book || book.market_type !== "perp") return null;
   const px = n(t.price);
   const sz = n(t.size);
-  if (px <= 0 || sz <= 0) return null;
-  const pnl = n(isAsk ? t.ask_account_pnl : t.bid_account_pnl);
-  const fee = n(weMaker ? t.maker_fee : t.taker_fee);
+  const time = timeMs(log.time);
+  if (px <= 0 || sz <= 0 || time <= 0) return null;
+
+  const takerAsk = truthy(t.is_taker_ask);
+  const isAsk = taker ? takerAsk : !takerAsk;
+  const feeRate = n(taker ? t.taker_fee : t.maker_fee);
+  const source = `${log.hash ?? ""}|${index}|${marketId}|${time}|${px}|${sz}|${isAsk}`;
+  const tid = n(t.trade_id ?? t.trade_id_str) || hashTid(source);
+  const txType = String(log.tx_type ?? "").toLowerCase();
+
   return {
-    coin,
+    coin: book.symbol,
     px,
     sz,
-    buy: isBid,
-    time: ms(t.transaction_time ?? t.timestamp),
-    fee: Math.abs(fee),
-    hash: t.tx_hash ?? String(t.trade_id),
-    tid: t.trade_id,
-    liquidated: t.type === "liquidation" || t.type === "deleverage",
-    closedPnl: pnl,
+    buy: !isAsk,
+    time,
+    // Explorer exposes the fee rate in millionths (28 = 0.0028%).
+    fee: Math.abs(px * sz * feeRate) / FEE_SCALE,
+    hash: log.hash ?? source,
+    tid,
+    liquidated: txType.includes("liquidat") || txType.includes("deleverage"),
   };
 }
 
@@ -127,48 +188,47 @@ export const adapter: VenueAdapter = {
     return out;
   },
   async fills(user, startTime, endTime, opts = {}) {
-    const maxPages = opts.maxPages ?? 40;
-    const indexes = await accountIndex(user, opts.signal);
-    const known = await books(opts.signal);
+    const maxPages = opts.maxPages ?? 4;
+    const [indexes, known] = await Promise.all([
+      accountIndex(user, opts.signal),
+      books(opts.signal),
+    ]);
     const legs: Leg[] = [];
+    const seen = new Set<string>();
+    let successfulReads = 0;
+    let firstError: unknown = null;
 
     for (const index of indexes) {
-      let cursor: string | undefined;
-      for (let i = 0; i < maxPages; i += 1) {
-        const q = new URLSearchParams({
-          account_index: String(index),
-          sort_by: "timestamp",
-          sort_dir: "desc",
-          limit: "100",
-          market_type: "perp",
-          type: "all",
-        });
-        if (cursor) q.set("cursor", cursor);
-        const raw = await json<{ trades?: Trade[]; next_cursor?: string; cursor?: string }>(
-          "lighter",
-          `/api/v1/trades?${q}`,
-          { signal: opts.signal },
-        );
-        const page = raw.trades ?? [];
-        if (page.length === 0) break;
-        for (const t of page) {
-          const at = ms(t.transaction_time ?? t.timestamp);
-          if (at < startTime) continue;
-          if (at > endTime) continue;
-          const book = known.get(t.market_id);
-          const coin = book?.symbol ?? String(t.market_id);
-          const leg = asLeg(t, index, coin);
-          if (leg) legs.push(leg);
+      try {
+        for (let i = 0; i < maxPages; i += 1) {
+          const page = await explorerLogs(index, i * LOG_PAGE, opts.signal);
+          successfulReads += 1;
+          if (page.length === 0) break;
+          for (const log of page) {
+            const t = log.pubdata?.trade_pubdata;
+            const key = `${index}|${log.hash ?? ""}|${log.time ?? ""}|${t?.market_index ?? ""}|${t?.price ?? ""}|${t?.size ?? ""}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            const at = timeMs(log.time);
+            if (at < startTime || at > endTime) continue;
+            const leg = asLogLeg(log, index, known);
+            if (leg) legs.push(leg);
+          }
+          opts.onPage?.(fillsFromLegs(legs, user));
+
+          const times = page.map((log) => timeMs(log.time)).filter((at) => at > 0);
+          const oldest = times.length > 0 ? Math.min(...times) : 0;
+          if (oldest > 0 && oldest < startTime) break;
+          if (page.length < LOG_PAGE) break;
         }
-        const oldest = ms(page[page.length - 1]!.transaction_time ?? page[page.length - 1]!.timestamp);
-        if (oldest < startTime) break;
-        cursor = raw.next_cursor ?? raw.cursor;
-        if (!cursor || page.length < 100) break;
+      } catch (err) {
+        if (opts.signal?.aborted) throw err;
+        firstError ??= err;
       }
     }
 
+    if (successfulReads === 0 && firstError) throw firstError;
     const fills = fillsFromLegs(legs, user);
-    opts.onPage?.(fills);
     return fills;
   },
   async candles(coin, interval, startTime, endTime, signal) {
@@ -182,13 +242,14 @@ export const adapter: VenueAdapter = {
     }
     if (marketId === undefined) return [];
     const resolution = INTERVAL[interval] ?? "1h";
-    const raw = await json<{ candlesticks?: RawBar[]; candles?: RawBar[] }>(
+    const raw = await json<unknown>(
       "lighter",
-      `/api/v1/candles?market_id=${marketId}&resolution=${resolution}&start_timestamp=${startTime}&end_timestamp=${endTime}&count_back=500`,
+      `/api/v1/candles?market_id=${marketId}&resolution=${resolution}&start_timestamp=${startTime}&end_timestamp=${endTime}&count_back=${COUNT_BACK}`,
       { signal },
     );
-    const bars = raw.candlesticks ?? raw.candles ?? [];
-    return bars.map(bar);
+    return candlesFrom(raw)
+      .filter((b) => b.t >= startTime && b.t <= endTime)
+      .sort((a, b) => a.t - b.t);
   },
 };
 
@@ -205,4 +266,17 @@ interface RawBar {
 function bar(b: RawBar): Candle {
   const t = ms(b.t);
   return { t, o: n(b.o), h: n(b.h), l: n(b.l), c: n(b.c), v: n(b.v), n: b.n ?? 0 };
+}
+
+/**
+ * Lighter's candle envelope is `{ code, r, c }`. `c` is the bar array — the same
+ * letter as close on each bar. Reading `candles` or `candlesticks` always produced
+ * [], so every Watch click said the window was outside what the API still serves.
+ */
+export function candlesFrom(raw: unknown): Candle[] {
+  if (!raw || typeof raw !== "object") return [];
+  const body = raw as { c?: unknown; candlesticks?: unknown; candles?: unknown };
+  const rows = body.c ?? body.candlesticks ?? body.candles;
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => bar(row as RawBar)).filter((b) => b.t > 0);
 }

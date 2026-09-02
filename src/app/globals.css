@@ -202,7 +202,7 @@ summary:focus-visible {
 .hl-fade { animation: hl-fade 0.16s ease-out; }
 
 /**
- * The replay's fill effects, Trickshot's curves.
+ * The replay's fill effects.
  *
  * The wash a fill throws across the chart: up fast, gone by 900ms. The label's own
  * envelope lives on its phase transitions rather than a keyframe, because a fill can

@@ -72,17 +72,21 @@ export const adapter: VenueAdapter = {
     return out;
   },
   async fills(user, startTime, endTime, opts = {}) {
-    const maxPages = opts.maxPages ?? 30;
-    /** Pacifica rejects a range longer than 30 days. Stay a day under. */
+    /** Counted in 29-day windows, not HTTP cursor pages. A busy desk can fill
+     * `maxPages` requests inside the latest month and never reach older closes. */
+    const maxWindows = opts.maxPages ?? 3;
+    const MAX_CURSOR_PER_WINDOW = 8;
     const WINDOW = 29 * 86_400_000;
     const legs: Leg[] = [];
-    let budget = maxPages;
+    let windows = 0;
     let windowEnd = endTime;
     let first = true;
 
-    while (budget > 0 && windowEnd > startTime) {
+    while (windows < maxWindows && windowEnd > startTime) {
+      windows += 1;
       const windowStart = Math.max(startTime, windowEnd - WINDOW);
       let cursor: string | undefined;
+      let cursorPages = 0;
       do {
         if (!first) await wait(GAP_MS, opts.signal);
         first = false;
@@ -98,7 +102,7 @@ export const adapter: VenueAdapter = {
           next_cursor?: string;
           has_more?: boolean;
         }>("pacifica", `/api/v1/trades/history?${q}`, { signal: opts.signal });
-        budget -= 1;
+        cursorPages += 1;
         const page = raw.data ?? [];
         for (const t of page) {
           const px = n(t.price);
@@ -124,7 +128,7 @@ export const adapter: VenueAdapter = {
         }
         if (page.length) opts.onPage?.(fillsFromLegs(legs, user));
         cursor = raw.has_more ? raw.next_cursor : undefined;
-      } while (cursor && budget > 0);
+      } while (cursor && cursorPages < MAX_CURSOR_PER_WINDOW);
       windowEnd = windowStart;
     }
     return fillsFromLegs(legs, user);

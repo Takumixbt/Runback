@@ -81,7 +81,7 @@ export interface ExportResult {
  * Deriving a bar rate from a target duration did the opposite of this: a
  * four-hundred-bar trade was smeared into a blur and a forty-bar one raced past. A clip
  * that would run past the memory ceiling is REFUSED rather than compressed, and the
- * panel says to raise the speed — Trickshot's answer to the same wall.
+ * panel says to raise the speed.
  */
 function pacing(bars: number, speed: number): { stepMs: number; seconds: number; frames: number } {
   const stepMs = STEP_MS / speed;
@@ -506,12 +506,12 @@ export async function exportClip(
 const MAX_MARKERS = 40;
 
 /**
- * The wallet's fills as chart markers — one circle per bar per side, the text going to
+ * The wallet's fills as chart markers — one arrow per bar per side, the text going to
  * the biggest fills, liquidations always kept and always speaking.
  *
  * Shared by the live replay and the exporter, so a clip cannot disagree with the screen
- * about where the trades were. Circles rather than arrows, Trickshot's marker: quieter
- * at a glance, and the side is already in which edge of the bar the marker hangs off.
+ * about where the trades were. A buy is an arrow up under the bar; a sell is an arrow
+ * down above it.
  */
 export function buildMarkers(data: Replay): {
   markers: SeriesMarker<Time>[];
@@ -587,7 +587,7 @@ export function buildMarkers(data: Replay): {
     }
   }
 
-  /** Rough width of a marker label at the chart's 11px. Trickshot's estimate. */
+  /** Rough width of a marker label at the chart's 11px. A conservative estimate. */
   const widthOf = (text: string) => text.length * 6.2 + 10;
   const full = (m: Pending) => `${m.isBuy ? "BUY" : "SELL"} ${usdCompact(m.usd)}`;
   const compact = (m: Pending) => usdCompact(m.usd);
@@ -596,9 +596,9 @@ export function buildMarkers(data: Replay): {
    * Which markers on one side of the bars can carry text without overlapping.
    *
    * Bars are nine pixels apart and "SELL $12.3K" is about seventy, so any two labels
-   * within a few bars of each other collide. Every marker keeps its circle; the TEXT
+   * within a few bars of each other collide. Every marker keeps its arrow; the TEXT
    * goes to the biggest fills first, and a smaller one inside the room an
-   * already-placed label needs stays a circle. Full labels where they all fit, short
+   * already-placed label needs stays an arrow. Full labels where they all fit, short
    * ones where they do not.
    */
   const placeText = (side: Pending[], write: (m: Pending) => string) => {
@@ -631,7 +631,7 @@ export function buildMarkers(data: Replay): {
     time: (data.candles[m.bar]!.t / 1000) as UTCTimestamp,
     position: m.isBuy ? "belowBar" : "aboveBar",
     color: m.liq ? AMBER : m.isBuy ? MINT : SIGNAL,
-    shape: "circle",
+    shape: m.isBuy ? "arrowUp" : "arrowDown",
     text: m.liq ? `LIQ ${usdCompact(m.usd)}` : (text.get(m) ?? ""),
   }));
 

@@ -1,7 +1,7 @@
 /**
  * Turning a stream of fills into a list of plays.
  *
- * This is the whole reason Runback can be wallet-first when Trickshot could not.
+ * This is the whole reason Runback can be wallet-first.
  * Solana hands you holdings with no timestamps, so a wallet resolves to a list of
  * TOKENS and you guess which are interesting. Hyperliquid fills carry time, direction
  * and realised PnL, so a wallet resolves to a list of POSITIONS: flat, open, scale,
@@ -409,8 +409,8 @@ export interface Replay {
 /**
  * Fold fills onto bars.
  *
- * Two accountings run side by side for the same reason Trickshot kept two: the sum of
- * `closedPnl` is order-independent and comes from Hyperliquid, while the average-cost
+ * Two accountings run side by side: the sum of `closedPnl` is order-independent and comes
+ * from Hyperliquid, while the average-cost
  * fold is ours and is order-dependent. They should agree at the end of an episode. Where
  * they do not, something was double-counted, usually a TWAP slice or a flip.
  */

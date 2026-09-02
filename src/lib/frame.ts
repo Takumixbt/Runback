@@ -9,9 +9,6 @@
  * Everything here is authored against the 1920-wide frame and multiplied by `layout.type`,
  * so one set of numbers describes all three formats.
  *
- * Adapted from nathanliow/trickshot (MIT). What changed is the content: a Solana replay has
- * a market cap and a token symbol, a Hyperliquid replay has a side, a leverage-shaped
- * notional, funding, and the possibility of the position being taken off the board.
  */
 
 import { DESIGN_W, type Layout } from "@/lib/clip";
@@ -281,7 +278,7 @@ function paintHeader(ctx: CanvasRenderingContext2D, s: FrameState): void {
 /**
  * The stats band, running.
  *
- * Trickshot's figures move with the cursor — realized and unrealized walking apart as
+ * The figures move with the cursor — realized and unrealized walking apart as
  * the position comes off is most of what makes a clip feel alive. A band of final
  * figures sitting under a moving chart reads as a caption; these are the position,
  * at this bar.
@@ -357,7 +354,7 @@ interface PlacedFill {
 }
 
 /**
- * Floating labels for the fills that just landed — Trickshot's layout.
+ * Floating labels for the fills that just landed — the layout.
  *
  * Centred on the chart, large, against whichever edge the layout nominated: the top in
  * a wide frame, where the price action tends to sit low, and the bottom in a tall one,
@@ -491,7 +488,7 @@ function paintOutro(ctx: CanvasRenderingContext2D, s: FrameState): void {
   const t = L.type;
 
   /**
-   * Staged, the way Trickshot's card arrives: the veil is down inside the first
+   * Staged card: the veil is down inside the first
    * third, the figures fade in behind it and COUNT UP over the first half, then sit
    * still — which leaves the last frame clean enough to serve as a thumbnail. The
    * chart is dimmed behind the scrim rather than cut away, so the clip reads as

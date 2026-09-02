@@ -92,7 +92,7 @@ export function shortAddress(v: string, keep = 6): string {
 }
 
 export function when(ms: number): string {
-  return new Date(ms).toLocaleString(undefined, {
+  return new Date(ms).toLocaleString("en-US", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -102,7 +102,7 @@ export function when(ms: number): string {
 }
 
 export function clock(ms: number): string {
-  return new Date(ms).toLocaleTimeString(undefined, {
+  return new Date(ms).toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,

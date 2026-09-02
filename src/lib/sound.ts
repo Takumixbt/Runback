@@ -86,8 +86,8 @@ function schedule(c: BaseAudioContext, out: AudioNode, cue: Cue, at: number): vo
       tone(c, out, at, { freq: 880, to: 1180, type: "triangle", duration: 0.07, gain: 0.34 });
       break;
     /**
-     * A till, because a sale is money arriving — Trickshot rings a kaching on every
-     * bar that sold. Two bright notes, up, rather than the old descending blip, which
+     * A till, because a sale is money arriving. It rings on every bar that sold. Two bright
+     * notes, up, rather than the old descending blip, which
      * read as an error tone.
      */
     case "sell":
@@ -144,22 +144,39 @@ function ensure(): AudioContext | null {
  *
  * Silent and harmless when muted, before any gesture, or on a browser with no Web Audio.
  * Nothing here throws, because a failed sound must never take the replay down with it.
+ *
+ * Watch is the gesture that opens the replay. The AudioContext has to be created and
+ * resumed in that click; creating it later, after candles return, leaves it suspended
+ * and the whole soundtrack is silent.
  */
+export function unlock(): void {
+  const c = ensure();
+  if (!c) return;
+  if (c.state === "suspended") void c.resume().catch(() => {});
+}
+
 export function play(cue: Cue, muted: boolean): void {
   if (muted) return;
   const c = ensure();
   if (!c || !master) return;
-  if (c.state === "suspended") void c.resume().catch(() => {});
 
-  const now = performance.now();
-  if (cue !== "settle" && cue !== "liquidation" && now - lastAt < MIN_GAP_MS) return;
-  lastAt = now;
+  const fire = () => {
+    if (!master) return;
+    const now = performance.now();
+    if (cue !== "settle" && cue !== "liquidation" && now - lastAt < MIN_GAP_MS) return;
+    lastAt = now;
+    try {
+      schedule(c, master, cue, c.currentTime);
+    } catch {
+      // A cue that cannot play is not worth reporting.
+    }
+  };
 
-  try {
-    schedule(c, master, cue, c.currentTime);
-  } catch {
-    // A cue that cannot play is not worth reporting.
+  if (c.state === "suspended") {
+    void c.resume().then(fire).catch(() => {});
+    return;
   }
+  fire();
 }
 
 /* ------------------------------------------------------------- rendering */

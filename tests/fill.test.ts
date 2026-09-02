@@ -14,6 +14,7 @@ import { fillsFromLegs, type Leg } from "@/lib/fill";
 import { buildReplay, episodes } from "@/lib/episodes";
 import type { Candle } from "@/lib/hl";
 import { n } from "@/lib/adapter";
+import { candlesFrom } from "@/lib/venues/lighter";
 
 const leg = (over: Partial<Leg> & { px: number; sz: number; buy: boolean; time: number }): Leg => ({
   coin: "TEST",
@@ -150,6 +151,20 @@ describe("buildReplay", () => {
     assert.ok(Math.abs(replay.points.at(-1)?.qty ?? 1) < 1e-6);
     // Flat, so nothing is left to mark to market.
     assert.ok(Math.abs(replay.points.at(-1)?.unrealized ?? 1) < 1e-6);
+  });
+});
+
+describe("Lighter candles", () => {
+  test("the envelope names the array `c`, not `candles`", () => {
+    // Watching any Lighter row returned 0 bars: we read `candlesticks` / `candles`
+    // and the live body uses `c`. Same letter as close on each bar.
+    const bar = { t: 1_767_700_500_000, o: 1, h: 2, l: 0.5, c: 1.5, v: 10 };
+    const fromC = candlesFrom({ code: 200, r: "1h", c: [bar] });
+    assert.equal(fromC.length, 1);
+    assert.equal(fromC[0]?.t, bar.t);
+    assert.equal(fromC[0]?.c, 1.5);
+    assert.equal(candlesFrom({ candlesticks: [bar], candles: [bar] }).length, 1);
+    assert.equal(candlesFrom({ code: 200, r: "1h" }).length, 0);
   });
 });
 
