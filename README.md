@@ -28,6 +28,4 @@ CI runs those four on Node 20 and 22. `npm run check` walks a live wallet, folds
 
 `tests/fill.test.ts` is the arithmetic that a live book will not catch. Every case in it shipped wrong once.
 
-Report a vulnerability in [SECURITY.md](SECURITY.md).
-
 MIT. [LICENSE](LICENSE).

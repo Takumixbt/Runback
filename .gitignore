@@ -10,6 +10,7 @@ build
 
 # Local editor and agent config. Useful on this machine, noise in the repo.
 .cursor/
+AGENTS.md
 CLAUDE.md
 .idea/
 .vscode/
