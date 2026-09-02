@@ -4,9 +4,7 @@
  * Hyperliquid is still the native fit: public fills with startPosition, dir and
  * closedPnl, CORS *, 0x addresses. Everything else is mapped onto that shape.
  * A venue is in this list only if a visitor can paste an identity and get history
- * without signing. Aster is not here. Variational is not here. Extended is
- * not here: user trades want an API key. Tread.fi is not here: it is an OEMS
- * in front of other books, and history is behind an API token.
+ * without signing or an API key.
  *
  * The URL is `/w/{venue}/{wallet}` so a clip stays on the book it was taken from.
  * `/w/0x…` still works: it redirects to Hyperliquid, which is what every existing

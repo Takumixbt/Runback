@@ -13,7 +13,7 @@ npm run dev
 
 Hyperliquid, Lighter, dYdX and Jupiter send `access-control-allow-origin: *`, so the browser calls them. Pacifica, RiseX and Drift go through `/api/x/{venue}` because they omit CORS.
 
-Hyperliquid rate-limits by IP at 1,200 weight a minute, so the browser makes those calls and each visitor spends their own quota. `/api/traders` is the one shared server read, for the front-page list.
+Hyperliquid rate-limits by IP at 1,200 weight a minute, so the browser makes those calls and each visitor spends their own quota.
 
 ## Check it
 

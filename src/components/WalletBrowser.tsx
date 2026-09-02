@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { kindOf, labelFor, type Market } from "@/lib/hl";
+import { kindOf, labelFor, type Fill, type Market } from "@/lib/hl";
 import { adapter } from "@/lib/venues";
 import {
   parseAccount,
@@ -24,6 +24,7 @@ import {
   type Replay as ReplayData,
 } from "@/lib/episodes";
 import { duration, pct, returnOf, signedUsd, usdCompact, when } from "@/lib/format";
+import { unlock } from "@/lib/sound";
 import { CoinIcon } from "./CoinIcon";
 import { Metric, Panel } from "./Panel";
 import { Replay } from "./Replay";
@@ -33,20 +34,30 @@ const UP = "#50d2c1";
 const DOWN = "#ed7088";
 const FLIPPED = "#97fce4";
 const FAINT = "#9aa3a48c";
+const REFERRAL_LINKS: Partial<Record<VenueId, string>> = {
+  hyperliquid: "https://app.hyperliquid.xyz/join/TAKUMI",
+  lighter: "https://app.lighter.xyz/?referral=TAKUMI&source=none",
+};
 
 /**
- * The whole record, always. There is no window and no control asking for one.
- *
- * Thirty days was a compromise nobody benefited from. The front page advertises a wallet's
- * best position on record and then the page it opened showed the last month, so tapping
- * James Wynn promised $25M on kPEPE and delivered a handful of recent SP500 scalps. A
- * catalogue that disagrees with the card that sent you to it is worse than a slow one.
- *
- * This is affordable because it is the visitor's own browser and their own rate limit, and
- * the count ticks up while it walks so the wait is legible rather than blank.
+ * The catalogue paints from the newest tape, not from genesis. Hyperliquid's
+ * `userFills` is one round trip (~2,000 prints). Other books cap at a few pages so
+ * opening a featured wallet is a couple of requests, not a fourteen-page walk.
  */
 const SINCE = 0;
-const MAX_PAGES = 14;
+const PAGES: Record<VenueId, number> = {
+  hyperliquid: 1,
+  lighter: 3,
+  risex: 3,
+  pacifica: 2,
+  drift: 3,
+  jupiter: 2,
+  dydx: 3,
+};
+
+type CachedWallet = { fills: Fill[]; markets: Map<string, Market> | null; at: number };
+const MEM = new Map<string, CachedWallet>();
+const MEM_MS = 60_000;
 
 function failMessage(err: unknown, name: string): string {
   const raw = err instanceof Error ? err.message : "";
@@ -94,14 +105,6 @@ export function WalletBrowser({
   const book = venueOf(picked)!;
   const api = adapter(picked);
 
-  useEffect(() => {
-    if (!initial) return;
-    adapter(picked)
-      .markets()
-      .then(setMarkets)
-      .catch(() => setMarkets(null));
-  }, [picked, initial]);
-
   const load = useCallback(async (who: string, on: VenueId = picked) => {
     abort.current?.abort();
     const ctl = new AbortController();
@@ -109,33 +112,40 @@ export function WalletBrowser({
     loaded.current = who;
     const src = adapter(on);
     const name = venueOf(on)?.name ?? on;
+    const cacheKey = `${on}|${who}`;
+    const hit = MEM.get(cacheKey);
 
     setReplay(null);
     setOpenError(null);
+
+    if (hit && Date.now() - hit.at < MEM_MS) {
+      setMarkets(hit.markets);
+      setEps(segment(hit.fills, who));
+      setPhase({ k: "ready" });
+      return;
+    }
+
     setEps([]);
     setPhase({ k: "loading", note: "reading fills" });
 
     try {
-      /**
-       * Rendered as it arrives, not after it all has.
-       *
-       * Segmenting a partial read gives correct positions, just fewer of them, so the
-       * table can be on screen after the first round trip and fill in behind itself. The
-       * alternative was several seconds of skeleton on a wallet like Wynn's for no reason
-       * other than that the loop had not finished.
-       */
-      const raw = await src.fills(who, SINCE, Date.now(), {
-        signal: ctl.signal,
-        maxPages: MAX_PAGES,
-        onPage: (soFar) => {
-          if (ctl.signal.aborted) return;
-          setEps(segment(soFar, who));
-          setPhase({ k: "streaming", note: `${soFar.length.toLocaleString()} fills` });
-        },
-      });
+      const [known, raw] = await Promise.all([
+        src.markets(ctl.signal).catch(() => null),
+        src.fills(who, SINCE, Date.now(), {
+          signal: ctl.signal,
+          maxPages: PAGES[on],
+          onPage: (soFar) => {
+            if (ctl.signal.aborted) return;
+            setEps(segment(soFar, who));
+            setPhase({ k: "streaming", note: `${soFar.length.toLocaleString()} fills` });
+          },
+        }),
+      ]);
       if (ctl.signal.aborted) return;
+      setMarkets(known);
       setEps(segment(raw, who));
       setPhase({ k: "ready" });
+      MEM.set(cacheKey, { fills: raw, markets: known, at: Date.now() });
     } catch (err) {
       if (ctl.signal.aborted) return;
       setPhase({ k: "error", message: failMessage(err, name) });
@@ -182,6 +192,7 @@ export function WalletBrowser({
     async (ep: Episode) => {
       const w = pickWindow(ep.start, ep.end);
       if (!w) return;
+      unlock();
       const seq = openSeq.current + 1;
       openSeq.current = seq;
       setOpening(ep.id);
@@ -243,8 +254,7 @@ export function WalletBrowser({
 
   useEffect(() => {
     if (!initial || !parseAccount(initial)) return;
-    const id = requestAnimationFrame(() => void load(initial, venueId));
-    return () => cancelAnimationFrame(id);
+    void load(initial, venueId);
     // Mount only, and only when the route carried an address.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -287,6 +297,7 @@ export function WalletBrowser({
       : typed.defaultVenue
     : null;
   const chips = typed ? venuesFor(typed.kind) : VENUES;
+  const referral = REFERRAL_LINKS[picked];
   const cta =
     "rb-press inline-flex h-11 shrink-0 items-center justify-center rounded-full bg-mint-soft px-5 text-body font-medium text-mint-text hover:brightness-110";
 
@@ -347,11 +358,24 @@ export function WalletBrowser({
                     : "border border-white/10 text-faint hover:border-white/18 hover:text-tx"
                 }`}
               >
-                <VenueMark id={v.id} size={16} />
+                <VenueMark id={v.id} size={16} className={picked === v.id ? "bg-ground" : ""} />
                 {v.name}
               </button>
             ))}
           </div>
+          {referral && (
+            <div className="flex items-center justify-center gap-2 text-micro text-faint">
+              <span>New to {book.name}?</span>
+              <a
+                href={referral}
+                target="_blank"
+                rel="sponsored noopener noreferrer"
+                className="rb-press rounded-full border border-mint-soft/20 px-2.5 py-1 text-mint-soft transition-colors hover:border-mint-soft/45 hover:bg-mint-soft/10"
+              >
+                Join with TAKUMI <span aria-hidden>↗</span>
+              </a>
+            </div>
+          )}
         </form>
       )}
 
@@ -697,15 +721,15 @@ function EpisodeTable({
                     <td className="px-4 py-3.5">
                       <div className="flex items-center gap-2">
                         <CoinIcon coin={ep.coin} label={label} size={16} />
-                        <span className="text-tx">{label}</span>
+                        <span className="whitespace-nowrap text-tx">{label}</span>
                         <span
-                          className="text-micro tracking-[0.08em]"
+                          className="whitespace-nowrap text-micro tracking-[0.08em]"
                           style={{ color: tone }}
                         >
                           {ep.side}
                         </span>
                         {kind !== "perp" && (
-                          <span className="text-micro tracking-[0.08em] text-faint">
+                          <span className="whitespace-nowrap text-micro tracking-[0.08em] text-faint">
                             {kind === "spot" ? "SPOT" : "HIP-3"}
                           </span>
                         )}
@@ -721,21 +745,21 @@ function EpisodeTable({
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3.5 text-muted">{when(ep.start)}</td>
-                    <td className="px-4 py-3.5 text-right text-muted">
+                    <td className="whitespace-nowrap px-4 py-3.5 tabular-nums text-muted">{when(ep.start)}</td>
+                    <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-muted">
                       {ep.open ? "–" : duration(ep.end - ep.start)}
                     </td>
-                    <td className="px-4 py-3.5 text-right text-muted">
+                    <td className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums text-muted">
                       {usdCompact(ep.peakNotional)}
                     </td>
                     <td
-                      className="px-4 py-3.5 text-right"
+                      className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums"
                       style={{ color: ep.open ? FAINT : ep.net >= 0 ? UP : DOWN }}
                     >
                       {ep.open ? "–" : signedUsd(ep.net)}
                     </td>
                     <td
-                      className="px-4 py-3.5 text-right"
+                      className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums"
                       style={{
                         color: ep.open || roe === null ? FAINT : roe >= 0 ? UP : DOWN,
                       }}

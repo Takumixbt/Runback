@@ -19,10 +19,7 @@ import {
 } from "@/lib/venue";
 
 function notableOf(venueId: VenueId, wallet: string) {
-  return (
-    NOTABLE.find((n) => n.venue === venueId && sameIdentity(n.address, wallet)) ??
-    NOTABLE.find((n) => sameIdentity(n.address, wallet))
-  );
+  return NOTABLE.find((n) => n.venue === venueId && sameIdentity(n.address, wallet));
 }
 
 function canonicalOf(kind: "evm" | "solana" | "dydx", raw: string): string {
@@ -135,7 +132,7 @@ export default async function WalletPage({
                   s.id === v.id ? "bg-mint-soft text-mint-text" : "text-faint hover:text-tx"
                 }`}
               >
-                <VenueMark id={s.id} size={16} />
+                <VenueMark id={s.id} size={16} className={s.id === v.id ? "bg-ground" : ""} />
                 {s.short}
               </Link>
             ))}

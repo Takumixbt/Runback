@@ -25,13 +25,10 @@ exchange APIs. So the realistic surface is small and specific:
   allowlist in `src/lib/http.ts`, redirects are refused, responses are capped and must be
   JSON. Anything that gets it to fetch a host that is not on that allowlist, follow a
   redirect, return a non-JSON body, or read a path it should not — that is a finding.
-- **`/api/traders`** — a cached server-side read. Anything that makes it expensive to call
-  or lets a caller control what it fetches.
 - Response headers set in `next.config.ts`, and anything that defeats them.
 - XSS through venue-supplied strings. Market symbols and wallet addresses come from third
   parties and are rendered; they are not trusted input.
-- Server-side request forgery, path traversal, or resource exhaustion anywhere in the two
-  routes above.
+- Server-side request forgery, path traversal, or resource exhaustion anywhere in that route.
 
 ## What is not
 

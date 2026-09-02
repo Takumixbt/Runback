@@ -8,8 +8,7 @@
  * a Vercel function every visitor spends the same shared quota and the app falls over
  * at a few dozen concurrent users.
  *
- * So: everything a visitor triggers runs client-side. The only server-side caller is
- * the gallery, which is one shared read on a timer.
+ * So: everything a visitor triggers runs client-side.
  */
 
 export const INFO = "https://api.hyperliquid.xyz/info";
@@ -115,11 +114,10 @@ const PAGE = 2000;
 /**
  * Every fill in a window, oldest first.
  *
- * `userFillsByTime` returns ascending and pages forward from `startTime`, so the cursor
- * is the last fill's own timestamp plus one. MEASURED walking a real wallet: four pages
- * of exactly 2,000, each continuing where the last stopped, reaching first-trade history
- * seventeen months back. The documented "10,000 most recent" ceiling did not bite there,
- * but assume it exists for a wallet that trades constantly.
+ * Recent first, then older. `userFills` is one round trip and the 2,000 most recent
+ * prints — enough to paint a catalogue. `userFillsByTime` walks forward from genesis,
+ * so using it as the first page made a wallet feel empty until seventeen months of
+ * history had been pulled. We still walk back when the caller asks for more pages.
  *
  * `aggregateByTime` merges partial fills that landed at the same instant. On by default:
  * a market order that swept four levels is one decision and should be one marker.
@@ -131,31 +129,66 @@ export async function fills(
   opts: {
     maxPages?: number;
     signal?: AbortSignal;
-    /**
-     * Called with everything read so far, after each page.
-     *
-     * The fills themselves and not a count, so a caller can render what it has while the
-     * walk continues. A heavy wallet is six thousand fills over four round trips, and
-     * holding the first three thousand back until the fourth returns is a blank screen for
-     * no reason: the positions built from a partial read are correct, there are simply
-     * fewer of them.
-     */
     onPage?: (soFar: Fill[]) => void;
   } = {},
 ): Promise<Fill[]> {
-  const maxPages = opts.maxPages ?? 8;
+  const maxPages = opts.maxPages ?? 3;
+  const seen = new Set<number>();
   const out: Fill[] = [];
-  let cursor = startTime;
 
-  for (let i = 0; i < maxPages; i += 1) {
+  const recent = await info<RawFill[]>(
+    { type: "userFills", user, aggregateByTime: true },
+    opts.signal,
+  );
+  if (Array.isArray(recent) && recent.length) {
+    const parsed = recent
+      .map(parseFill)
+      .filter((f) => f.time >= startTime && f.time <= endTime)
+      .sort((a, b) => a.time - b.time || a.tid - b.tid);
+    for (const f of parsed) {
+      if (seen.has(f.tid)) continue;
+      seen.add(f.tid);
+      out.push(f);
+    }
+    opts.onPage?.(out);
+  }
+  if (!Array.isArray(recent) || recent.length === 0) {
+    let cursor = startTime;
+    for (let i = 0; i < maxPages; i += 1) {
+      const page = await info<RawFill[]>(
+        { type: "userFillsByTime", user, startTime: cursor, endTime, aggregateByTime: true },
+        opts.signal,
+      );
+      if (!Array.isArray(page) || !page.length) break;
+      for (const raw of page) {
+        const f = parseFill(raw);
+        if (seen.has(f.tid)) continue;
+        seen.add(f.tid);
+        out.push(f);
+      }
+      opts.onPage?.(out);
+      if (page.length < PAGE) break;
+      cursor = page[page.length - 1]!.time + 1;
+    }
+    return out;
+  }
+
+  const cap = out.length > 0 ? out[0]!.time : endTime;
+  let cursor = startTime;
+  for (let i = 1; i < maxPages; i += 1) {
+    if (cursor >= cap) break;
     const page = await info<RawFill[]>(
-      { type: "userFillsByTime", user, startTime: cursor, endTime, aggregateByTime: true },
+      { type: "userFillsByTime", user, startTime: cursor, endTime: cap, aggregateByTime: true },
       opts.signal,
     );
-    // A rejected read answers 200 with an error object, not an array. Reading
-    // `.length` off that throws a TypeError instead of ending the walk.
     if (!Array.isArray(page) || !page.length) break;
-    for (const f of page) out.push(parseFill(f));
+    for (const raw of page) {
+      const f = parseFill(raw);
+      if (f.time < startTime || f.time > endTime || seen.has(f.tid)) continue;
+      seen.add(f.tid);
+      out.push(f);
+    }
+    out.sort((a, b) => a.time - b.time || a.tid - b.tid);
     opts.onPage?.(out);
     if (page.length < PAGE) break;
     cursor = page[page.length - 1]!.time + 1;
@@ -222,6 +255,9 @@ interface PerpUniverse { name: string; maxLeverage?: number; isDelisted?: boolea
 interface SpotToken { name: string; index: number }
 interface SpotPair { name: string; index: number; tokens: [number, number] }
 
+let marketsMemo: { at: number; data: Map<string, Market> } | null = null;
+const MARKETS_MS = 60_000;
+
 /**
  * Display names for every market, so a replay is never titled "@142".
  *
@@ -230,6 +266,7 @@ interface SpotPair { name: string; index: number; tokens: [number, number] }
  * markets arrive already prefixed by their deployer.
  */
 export async function markets(signal?: AbortSignal): Promise<Map<string, Market>> {
+  if (marketsMemo && Date.now() - marketsMemo.at < MARKETS_MS) return marketsMemo.data;
   const out = new Map<string, Market>();
 
   const [perp, spot] = await Promise.all([
@@ -252,6 +289,7 @@ export async function markets(signal?: AbortSignal): Promise<Map<string, Market>
     out.set(`@${pair.index}`, { coin: `@${pair.index}`, label, kind: "spot" });
   }
 
+  marketsMemo = { at: Date.now(), data: out };
   return out;
 }
 

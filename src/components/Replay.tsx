@@ -18,7 +18,7 @@ import type { Replay as ReplayData } from "@/lib/episodes";
 import { buildMarkers, exportClip, FORMATS, type Shape } from "@/lib/export";
 import { MAX_CLIP_SECONDS, OUTRO_SECONDS } from "@/lib/clip";
 import { save } from "@/lib/record";
-import { play, readMuted, writeMuted } from "@/lib/sound";
+import { play, readMuted, unlock, writeMuted } from "@/lib/sound";
 import {
   clock,
   duration,
@@ -43,8 +43,8 @@ const ACCENT = "#97fce4";
 /**
  * How long one bar is held at 1x.
  *
- * Six hundred milliseconds, which is Trickshot's number, and it is the single thing that
- * decides whether a replay is watchable. Normalising the whole thing to a fixed total
+ * Six hundred milliseconds is the single thing that decides whether a replay is watchable.
+ * Normalising the whole thing to a fixed total
  * duration was the mistake: it meant a four-hundred-bar hold ran at fifty milliseconds a
  * bar, so the candles blurred past and nothing could be read. A bar deserves the same time
  * whatever else is in the chart, and anyone who wants it faster has the speed control.
@@ -52,7 +52,7 @@ const ACCENT = "#97fce4";
 const STEP_MS = 600;
 
 /**
- * Pixels per bar. Trickshot's number, and the only thing deciding how wide a candle looks.
+ * Pixels per bar. The fixed value deciding how wide a candle looks.
  *
  * Fixed rather than derived from the bar count, so a nine-hundred-bar hold draws the same
  * candle as a forty-bar scalp and the chart scrolls instead of squeezing.
@@ -71,7 +71,7 @@ const BAR_SPACING = 9;
 const SPEEDS = [1, 2, 4, 8] as const;
 
 /**
- * Once per this much gained, the fanfare sounds. Trickshot's $20K.
+ * Once per this much gained, the fanfare sounds.
  *
  * A high-water mark rather than a threshold, so a position that dips and recovers does
  * not sound the same step twice — it fires on GAINING another twenty thousand, not on
@@ -80,7 +80,7 @@ const SPEEDS = [1, 2, 4, 8] as const;
  */
 const FANFARE_AT = 20_000;
 
-/** How long a fill's label holds over the chart before leaving. Trickshot's number. */
+/** How long a fill's label holds over the chart before leaving. */
 const FLASH_MS = 1_400;
 
 /**
@@ -157,7 +157,7 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
       };
     },
     readMuted,
-    () => true,
+    () => false,
   );
   /**
    * Fills currently announcing themselves over the chart.
@@ -233,7 +233,7 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
   /**
    * The wallet's fills as chart markers, built by the same function the exporter uses.
    *
-   * One circle per bar per side rather than one arrow per fill — a position built out
+   * One arrow per bar per side rather than one arrow per fill — a position built out
    * of a TWAP or a swept market order (MEASURED: 911 fills on one HIP-3 market maker)
    * otherwise stacks into an unreadable ribbon, and the per-frame filter's cost scales
    * with fill count. `upto` turns that filter into a slice of a pre-sorted array.
@@ -474,8 +474,8 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
    * Painting here too put a fully-formed copy of each new bar up for the one frame
    * between the cursor landing and the loop's next paint, so every bar blinked to full
    * height before shrinking back to grow. Pausing, on the other hand, snaps the bar
-   * being formed to its real close — which is what Trickshot does, and what makes a
-   * paused frame read as the market rather than as half a candle.
+   * being formed to its real close, which makes a paused frame read as the market rather
+   * than as half a candle.
    */
   useEffect(() => {
     if (playing) return;
@@ -485,7 +485,7 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
   /* --------------------------------------------------------------- sound */
 
   /**
-   * Sound follows the bar, not the fills list — Trickshot's rule.
+   * Sound follows the bar, not the fills list.
    *
    * One till for every BAR that sold something, rather than one per fill: a TWAP
    * splitting an exit across twenty slices is one exit, and twenty tills at once is
@@ -696,6 +696,7 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
   const done = finished;
 
   const restart = useCallback(() => {
+    unlock();
     cursorRef.current = 0;
     setCursor(0);
     setFinished(false);
@@ -707,6 +708,7 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
   }, []);
 
   const toggle = useCallback(() => {
+    unlock();
     if (done) restart();
     else setPlaying((p) => !p);
   }, [done, restart]);
@@ -839,8 +841,8 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
               <div ref={priceRef} className="h-[360px] w-full sm:h-[460px]" />
 
               {/*
-                A fill announcing itself, the way Trickshot's does: the chart washes in
-                the fill's colour and a large label floats at the top centre, where the
+                A fill announcing itself: the chart washes in the fill's colour and a large
+                label floats at the top centre, where the
                 price action — which sits in the lower two thirds — is not covered.
                 A new fill displaces the last; nothing stacks.
               */}
@@ -1093,18 +1095,18 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
             <tbody>
               {shownFills.map((f) => (
                 <tr key={f.tid} className="border-b border-divider last:border-b-0">
-                  <td className="px-3 py-2 text-faint">{clock(f.time)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 tabular-nums text-faint">{clock(f.time)}</td>
                   <td
-                    className="px-3 py-2"
+                    className="whitespace-nowrap px-3 py-2"
                     style={{ color: wasLiquidated(f) ? ACCENT : f.side === "B" ? UP : DOWN }}
                   >
                     {wasLiquidated(f) ? "LIQ " : ""}
                     {f.dir}
                   </td>
-                  <td className="px-3 py-2 text-right text-muted">{size(f.sz)}</td>
-                  <td className="px-3 py-2 text-right text-muted">{price(f.px)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-muted">{size(f.sz)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-right tabular-nums text-muted">{price(f.px)}</td>
                   <td
-                    className="px-3 py-2 text-right"
+                    className="whitespace-nowrap px-3 py-2 text-right tabular-nums"
                     style={{
                       color: f.closedPnl === 0 ? "#9aa3a48c" : f.closedPnl > 0 ? UP : DOWN,
                     }}
@@ -1255,7 +1257,7 @@ function Export({ data, speed }: { data: ReplayData; speed: number }) {
    * A clip runs exactly as long as the replay does at the current speed — every bar
    * held the same time — so the estimate is arithmetic, and a trade that would run
    * past the ceiling is refused up front rather than smeared to fit. Raising the
-   * speed is how it fits, which is Trickshot's answer to the same wall.
+   * speed is how it fits, which is the practical answer to the same wall.
    */
   const seconds = (data.candles.length * STEP_MS) / speed / 1000 + OUTRO_SECONDS;
   const tooLong = seconds > MAX_CLIP_SECONDS;
