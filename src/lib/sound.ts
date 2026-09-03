@@ -117,9 +117,20 @@ function schedule(c: BaseAudioContext, out: AudioNode, cue: Cue, at: number): vo
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 
-/** Cues collapse when several land in a frame, so a burst of fills is one sound. */
+/** Cues of the same kind collapse when they land inside one frame, so a burst is one sound. */
 let lastAt = 0;
+let lastCue: Cue | null = null;
 const MIN_GAP_MS = 28;
+
+/**
+ * A buy and a sell on the same bar are two arrows, so they are two sounds.
+ * Two sells that a skipped-frame walk piled on top of each other are still one till.
+ */
+export function tooSoon(cue: Cue, atMs: number, prevCue: Cue | null, prevAtMs: number): boolean {
+  if (cue === "settle" || cue === "liquidation") return false;
+  if (cue !== prevCue) return false;
+  return atMs - prevAtMs < MIN_GAP_MS;
+}
 
 function ensure(): AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -163,8 +174,9 @@ export function play(cue: Cue, muted: boolean): void {
   const fire = () => {
     if (!master) return;
     const now = performance.now();
-    if (cue !== "settle" && cue !== "liquidation" && now - lastAt < MIN_GAP_MS) return;
+    if (tooSoon(cue, now, lastCue, lastAt)) return;
     lastAt = now;
+    lastCue = cue;
     try {
       schedule(c, master, cue, c.currentTime);
     } catch {
@@ -192,8 +204,9 @@ export interface TimedCue {
  *
  * Rendered offline rather than recorded, so it is sample-accurate regardless of what the
  * machine managed while encoding, and identical every time the same trade is exported.
- * Returns null wherever offline audio is unavailable; the caller then produces a silent
- * clip rather than no clip.
+ * Returns null wherever offline audio is unavailable. The caller must refuse the
+ * export rather than mux a silent file — a clip that looks like the replay and
+ * sounds like nothing is how this used to ship.
  */
 export async function renderTrack(
   cues: TimedCue[],
@@ -226,14 +239,14 @@ export async function renderTrack(
     master.connect(squash);
     squash.connect(c.destination);
 
-    let previous = -Infinity;
+    let prevAt = -Infinity;
+    let prevCue: Cue | null = null;
     for (const { cue, at } of cues) {
       if (at < 0 || at > seconds) continue;
       // The same collapse rule live playback uses, so a clip sounds like the replay did.
-      if (cue !== "settle" && cue !== "liquidation" && at - previous < MIN_GAP_MS / 1000) {
-        continue;
-      }
-      previous = at;
+      if (tooSoon(cue, at * 1000, prevCue, prevAt)) continue;
+      prevAt = at * 1000;
+      prevCue = cue;
       schedule(c, master, cue, at);
     }
 

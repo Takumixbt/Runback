@@ -12,9 +12,11 @@ import assert from "node:assert/strict";
 import test, { describe } from "node:test";
 import { fillsFromLegs, type Leg } from "@/lib/fill";
 import { buildReplay, episodes } from "@/lib/episodes";
-import type { Candle } from "@/lib/hl";
+import type { Candle, Fill } from "@/lib/hl";
 import { n } from "@/lib/adapter";
 import { candlesFrom } from "@/lib/venues/lighter";
+import { cuesByBar, marksOn, MAX_MARKERS } from "@/lib/marks";
+import { tooSoon } from "@/lib/sound";
 
 const leg = (over: Partial<Leg> & { px: number; sz: number; buy: boolean; time: number }): Leg => ({
   coin: "TEST",
@@ -178,5 +180,85 @@ describe("numeric boundary", () => {
     assert.equal(n(Infinity), 0);
     assert.equal(n("12.5"), 12.5);
     assert.equal(n(-3), -3);
+  });
+});
+
+describe("marks and soundtrack", () => {
+  const wallet = "0xabc";
+  const print = (over: {
+    time: number;
+    side: "A" | "B";
+    sz: number;
+    liq?: boolean;
+  }): Fill => ({
+    coin: "TEST",
+    px: 100,
+    sz: over.sz,
+    side: over.side,
+    time: over.time,
+    startPosition: 0,
+    dir: over.side === "B" ? "Open Long" : "Close Long",
+    closedPnl: 0,
+    fee: 0,
+    feeToken: "USDC",
+    crossed: true,
+    hash: "h",
+    tid: over.time,
+    twapId: null,
+    liquidatedUser: over.liq ? wallet : null,
+  });
+
+  const tape = (nBars: number, fills: Fill[]) => ({
+    wallet,
+    fills,
+    candles: Array.from({ length: nBars }, (_, i) =>
+      bar((i + 1) * 60_000, 100),
+    ),
+  });
+
+  test("a buy arrow is a buy cue, and a sell too small to mark is silent", () => {
+    // 50 sell bars of increasing size, plus one large buy. Forty marks, the
+    // tiny sells dropped. The soundtrack has to agree: no till without an arrow,
+    // and that buy is not silent.
+    const nBars = 50;
+    const fills = Array.from({ length: nBars }, (_, i) =>
+      print({
+        time: (i + 1) * 60_000,
+        side: i === nBars - 1 ? "B" : "A",
+        sz: i + 1,
+      }),
+    );
+    const data = tape(nBars, fills);
+    const marks = marksOn(data);
+    const cues = cuesByBar(marks, nBars);
+
+    assert.equal(new Set(marks.map((m) => m.bar)).size, MAX_MARKERS);
+    for (let b = 0; b < nBars; b += 1) {
+      const marked = marks.filter((m) => m.bar === b);
+      assert.deepEqual(
+        cues[b],
+        marked.map((m) => (m.isBuy ? "buy" : "sell")),
+      );
+    }
+    assert.ok((cues[0]?.length ?? 0) === 0, "the smallest sell must not ding");
+    assert.deepEqual(cues[nBars - 1], ["buy"]);
+  });
+
+  test("a bar that bought and sold carries both cues, a liquidation only the thud", () => {
+    const data = tape(3, [
+      print({ time: 60_000, side: "B", sz: 10 }),
+      print({ time: 60_000, side: "A", sz: 8 }),
+      print({ time: 120_000, side: "A", sz: 0.01, liq: true }),
+    ]);
+    const marks = marksOn(data);
+    const cues = cuesByBar(marks, 3);
+    assert.deepEqual(cues[0], ["buy", "sell"]);
+    assert.deepEqual(cues[1], ["liquidation"]);
+  });
+
+  test("a buy and a sell in the same instant both play; two sells collapse", () => {
+    assert.equal(tooSoon("sell", 10, "buy", 10), false);
+    assert.equal(tooSoon("sell", 20, "sell", 0), true);
+    assert.equal(tooSoon("liquidation", 5, "liquidation", 0), false);
   });
 });
