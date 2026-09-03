@@ -238,7 +238,7 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
    * otherwise stacks into an unreadable ribbon, and the per-frame filter's cost scales
    * with fill count. `upto` turns that filter into a slice of a pre-sorted array.
    */
-  const { markers: allMarkers, upto: markersUpto } = useMemo(
+  const { markers: allMarkers, upto: markersUpto, cues: barCues } = useMemo(
     () => buildMarkers(data),
     [data],
   );
@@ -485,13 +485,13 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
   /* --------------------------------------------------------------- sound */
 
   /**
-   * Sound follows the bar, not the fills list.
+   * Sound follows the arrows.
    *
-   * One till for every BAR that sold something, rather than one per fill: a TWAP
-   * splitting an exit across twenty slices is one exit, and twenty tills at once is
-   * noise. Buys are silent. A liquidation keeps its own weight, and the fanfare is a
-   * high-water mark every $20K — armed at the opening bar, so a window that opens
-   * mid-position does not begin with four stacked blasts.
+   * One cue per marker the chart actually draws: a buy arrow ticks, a sell arrow
+   * tills, a liquidation keeps its weight. Fills that were too small to earn an
+   * arrow stay silent, which is how a TWAP of twenty slices does not become twenty
+   * dings. The fanfare is a high-water mark every $20K — armed at the opening bar,
+   * so a window that opens mid-position does not begin with four stacked blasts.
    */
   useEffect(() => {
     if (bars === 0) return;
@@ -502,10 +502,7 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
       soundedRef.current = upto;
     } else {
       for (let b = soundedRef.current + 1; b <= upto; b += 1) {
-        const at = fillsAtBar.get(b);
-        if (!at) continue;
-        if (at.some((f) => f.side !== "B")) play("sell", muted);
-        if (at.some(wasLiquidated)) play("liquidation", muted);
+        for (const cue of barCues[b] ?? []) play(cue, muted);
       }
       soundedRef.current = upto;
     }
@@ -517,7 +514,7 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
       milestoneRef.current = reached;
       play("profit", muted);
     }
-  }, [cursor, bars, fillsAtBar, muted, data.points, wasLiquidated]);
+  }, [cursor, bars, barCues, muted, data.points]);
 
   /**
    * The full stop, on the end card rather than on the last bar.

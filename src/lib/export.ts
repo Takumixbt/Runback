@@ -35,6 +35,7 @@ import {
 import { paint, type PaintFill } from "@/lib/frame";
 import { duration, usdCompact } from "@/lib/format";
 import type { Replay } from "@/lib/episodes";
+import { cuesByBar, marksOn, type Mark } from "@/lib/marks";
 import { renderTrack, type TimedCue } from "@/lib/sound";
 import { sameIdentity } from "@/lib/venue";
 
@@ -101,6 +102,9 @@ export async function exportClip(
 ): Promise<ExportResult | null> {
   const encoders: Encoders | null = await negotiate();
   if (!encoders) throw new Error("This browser cannot encode video. Try Chrome or Edge.");
+  if (!encoders.audio) {
+    throw new Error("This browser cannot encode audio. Try Chrome or Edge.");
+  }
 
   /**
    * Canvas cannot wait for a webfont the way the DOM can.
@@ -183,22 +187,18 @@ export async function exportClip(
   /**
    * The soundtrack, rendered before a single frame is drawn.
    *
-   * The same cues the live replay sounds, on the same rule: one till per BAR that sold
-   * something rather than one per fill, the fanfare on each $20K high-water mark, a
-   * liquidation's weight, and the full stop on the end card. A cue sits at
-   * bar × stepMs, which is exactly where the frame walk puts that bar, so a sound lands
-   * on the frame its marker appears.
+   * Cues come from the same marks the arrows use, so a buy ding lands on a buy
+   * arrow and a till lands on a sell arrow. Fanfare and the end-card full stop
+   * are not fill markers; they keep their own rules. A cue sits at bar × stepMs,
+   * which is exactly where the frame walk puts that bar.
    */
+  const { markers: allMarkers, upto: markersUpto, cues: barCues } = buildMarkers(data);
   const track = await (async () => {
     const cues: TimedCue[] = [];
     let tier = Math.max(Math.floor((data.points[0]?.total ?? 0) / FANFARE_AT), 0);
     for (let bar = 0; bar < bars; bar += 1) {
       const at = (bar * stepMs) / 1000;
-      const cell = cells.get(bar);
-      if (cell) {
-        if (cell.sell > 0) cues.push({ cue: "sell", at });
-        if (cell.liq) cues.push({ cue: "liquidation", at });
-      }
+      for (const cue of barCues[bar] ?? []) cues.push({ cue, at });
       // The opening bar ARMS the fanfare rather than sounding it: a window that opens
       // mid-position can already be up six figures, and four stacked blasts is noise.
       if (bar === 0) continue;
@@ -210,7 +210,11 @@ export async function exportClip(
     }
     // The full stop, on the end card rather than on the last bar.
     cues.push({ cue: "settle", at: seconds + 0.15 });
-    return renderTrack(cues, seconds + OUTRO_SECONDS);
+    const buf = await renderTrack(cues, seconds + OUTRO_SECONDS);
+    if (!buf) {
+      throw new Error("Could not render the soundtrack. Try Chrome or Edge.");
+    }
+    return buf;
   })();
 
   /* ------------------------------------------------- the offscreen chart */
@@ -294,10 +298,6 @@ export async function exportClip(
   }));
 
   const markerApi = createSeriesMarkers(series, []);
-
-  /** The same markers the screen carries, so a clip is the replay rather than a cousin. */
-  const { markers: allMarkers, upto: markersUpto } = buildMarkers(data);
-
   series.setData([]);
 
   let painted = -1;
@@ -496,101 +496,27 @@ export async function exportClip(
 }
 
 /**
- * The most marker-carrying bars a chart will keep, liquidations excepted.
- *
- * Enough to show where a position was built and taken off, few enough that each one is
- * still a separate thing you can look at. A HIP-3 market maker's position can carry 911
- * fills; merged per bar that is still a marker on nearly every bar, which is a ribbon,
- * not an annotation.
- */
-const MAX_MARKERS = 40;
-
-/**
  * The wallet's fills as chart markers — one arrow per bar per side, the text going to
  * the biggest fills, liquidations always kept and always speaking.
  *
  * Shared by the live replay and the exporter, so a clip cannot disagree with the screen
  * about where the trades were. A buy is an arrow up under the bar; a sell is an arrow
- * down above it.
+ * down above it. The soundtrack reads `cues`, which is those same arrows.
  */
 export function buildMarkers(data: Replay): {
   markers: SeriesMarker<Time>[];
   /** How many markers exist at or before each bar, so a frame is a slice not a scan. */
   upto: Int32Array;
+  /** Fill sounds for each bar, one cue per arrow. */
+  cues: ReturnType<typeof cuesByBar>;
 } {
   const bars = data.candles.length;
-  const me = data.wallet;
-
-  const barOf = (ts: number): number => {
-    let lo = 0;
-    let hi = bars - 1;
-    if (hi < 0) return 0;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1;
-      if (data.candles[mid]!.t <= ts) lo = mid;
-      else hi = mid - 1;
-    }
-    return lo;
-  };
-
-  const byBar = new Map<number, { buy: number; sell: number; liq: boolean }>();
-  for (const f of data.fills) {
-    const b = Math.max(0, barOf(f.time));
-    const cell = byBar.get(b) ?? { buy: 0, sell: 0, liq: false };
-    if (f.side === "B") cell.buy += f.sz * f.px;
-    else cell.sell += f.sz * f.px;
-    if (f.liquidatedUser && sameIdentity(f.liquidatedUser, me)) cell.liq = true;
-    byBar.set(b, cell);
-  }
-
-  /**
-   * Only the bars that moved the most money get a marker.
-   *
-   * Ranking bars by the money that moved and keeping the largest leaves the entries,
-   * the exits and the big adds, which is the shape of the trade. Everything dropped is
-   * a top-up too small to change the story, and it is still in the fill table
-   * underneath. Liquidations are never dropped, whatever they cost.
-   */
-  const scored = [...byBar.entries()].map(([bar, cell]) => ({
-    bar,
-    cell,
-    moved: cell.buy + cell.sell,
-  }));
-  const keep = new Set<number>();
-  for (const s of scored) if (s.cell.liq) keep.add(s.bar);
-  scored
-    .filter((s) => !s.cell.liq)
-    .sort((a, b) => b.moved - a.moved)
-    .slice(0, Math.max(0, MAX_MARKERS - keep.size))
-    .forEach((s) => keep.add(s.bar));
-
-  const kept = scored.filter((s) => keep.has(s.bar)).sort((a, b) => a.bar - b.bar);
-
-  /**
-   * One marker per bar PER SIDE: a buy hangs below the bar and a sell above, so a bar
-   * that did both carries both and they can never overlap. A liquidation is one marker
-   * on the dominant side.
-   */
-  interface Pending {
-    bar: number;
-    isBuy: boolean;
-    liq: boolean;
-    usd: number;
-  }
-  const pending: Pending[] = [];
-  for (const { bar, cell } of kept) {
-    if (cell.liq) {
-      pending.push({ bar, isBuy: cell.buy >= cell.sell, liq: true, usd: cell.buy + cell.sell });
-    } else {
-      if (cell.buy > 0) pending.push({ bar, isBuy: true, liq: false, usd: cell.buy });
-      if (cell.sell > 0) pending.push({ bar, isBuy: false, liq: false, usd: cell.sell });
-    }
-  }
+  const pending = marksOn(data);
 
   /** Rough width of a marker label at the chart's 11px. A conservative estimate. */
   const widthOf = (text: string) => text.length * 6.2 + 10;
-  const full = (m: Pending) => `${m.isBuy ? "BUY" : "SELL"} ${usdCompact(m.usd)}`;
-  const compact = (m: Pending) => usdCompact(m.usd);
+  const full = (m: Mark) => `${m.isBuy ? "BUY" : "SELL"} ${usdCompact(m.usd)}`;
+  const compact = (m: Mark) => usdCompact(m.usd);
 
   /**
    * Which markers on one side of the bars can carry text without overlapping.
@@ -601,8 +527,8 @@ export function buildMarkers(data: Replay): {
    * already-placed label needs stays an arrow. Full labels where they all fit, short
    * ones where they do not.
    */
-  const placeText = (side: Pending[], write: (m: Pending) => string) => {
-    const out = new Map<Pending, string>();
+  const placeText = (side: Mark[], write: (m: Mark) => string) => {
+    const out = new Map<Mark, string>();
     const placed: { bar: number; half: number }[] = [];
     for (const m of [...side].sort((a, b) => b.usd - a.usd)) {
       const text = write(m);
@@ -617,7 +543,7 @@ export function buildMarkers(data: Replay): {
     return out;
   };
 
-  const text = new Map<Pending, string>();
+  const text = new Map<Mark, string>();
   for (const isBuy of [true, false]) {
     const side = pending.filter((m) => m.isBuy === isBuy && !m.liq);
     const long = placeText(side, full);
@@ -641,7 +567,7 @@ export function buildMarkers(data: Replay): {
     while (k < ordered.length && ordered[k]!.bar <= i) k += 1;
     upto[i] = k;
   }
-  return { markers, upto };
+  return { markers, upto, cues: cuesByBar(ordered, bars) };
 }
 
 export { FORMATS, type Shape };
