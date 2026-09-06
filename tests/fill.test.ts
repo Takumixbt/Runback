@@ -16,7 +16,7 @@ import type { Candle, Fill } from "@/lib/hl";
 import { n } from "@/lib/adapter";
 import { candlesFrom } from "@/lib/venues/lighter";
 import { cuesByBar, marksOn, MAX_MARKERS } from "@/lib/marks";
-import { tooSoon } from "@/lib/sound";
+import { LOOKAHEAD, nextCueTime, SPACING } from "@/lib/sound";
 
 const leg = (over: Partial<Leg> & { px: number; sz: number; buy: boolean; time: number }): Leg => ({
   coin: "TEST",
@@ -256,9 +256,15 @@ describe("marks and soundtrack", () => {
     assert.deepEqual(cues[1], ["liquidation"]);
   });
 
-  test("a buy and a sell in the same instant both play; two sells collapse", () => {
-    assert.equal(tooSoon("sell", 10, "buy", 10), false);
-    assert.equal(tooSoon("sell", 20, "sell", 0), true);
-    assert.equal(tooSoon("liquidation", 5, "liquidation", 0), false);
+  test("a buy and a sell in the same instant both get a slot; nothing is dropped", () => {
+    const now = 4.2;
+    const first = nextCueTime(now, Number.NEGATIVE_INFINITY);
+    const second = nextCueTime(now, first);
+    const third = nextCueTime(now, second);
+
+    assert.ok(first >= now + LOOKAHEAD, "live cues sit ahead of currentTime");
+    assert.ok(second - first >= SPACING - 1e-9, "the second arrow still rings");
+    assert.ok(third - second >= SPACING - 1e-9, "a skipped-frame burst stays audible");
+    assert.equal(nextCueTime(now + 1, first), now + 1 + LOOKAHEAD);
   });
 });

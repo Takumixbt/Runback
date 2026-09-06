@@ -178,9 +178,14 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
   useEffect(() => {
     const onVis = () => {
       if (document.hidden) setPlaying(false);
+      else unlock();
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  useEffect(() => {
+    unlock();
   }, []);
 
   /* ------------------------------------------------------------ pre-work */
@@ -485,36 +490,55 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
   /* --------------------------------------------------------------- sound */
 
   /**
-   * Sound follows the arrows.
+   * Sound follows the arrows, on the same frame the chart paints them.
    *
-   * One cue per marker the chart actually draws: a buy arrow ticks, a sell arrow
-   * tills, a liquidation keeps its weight. Fills that were too small to earn an
-   * arrow stay silent, which is how a TWAP of twenty slices does not become twenty
-   * dings. The fanfare is a high-water mark every $20K — armed at the opening bar,
-   * so a window that opens mid-position does not begin with four stacked blasts.
+   * Keying this off a `cursor` effect meant the ping waited for React to commit,
+   * and a skipped-frame jump delivered every pending cue in one call. The clock
+   * loop calls this as it crosses a bar — the same moment `paintTo` draws the
+   * arrow — and a paused scrub still goes through the effect below. One cue per
+   * marker: a buy arrow ticks, a sell arrow ticks lower, a liquidation keeps its
+   * weight. Fills too small to mark stay silent. The fanfare is a high-water
+   * mark every $20K, armed at the opening bar so a window that opens mid-position
+   * does not begin with four stacked blasts.
    */
+  const mutedRef = useRef(muted);
+  const barCuesRef = useRef(barCues);
+  const pointsRef = useRef(data.points);
   useEffect(() => {
-    if (bars === 0) return;
-    const upto = Math.min(cursor, bars - 1);
+    mutedRef.current = muted;
+    barCuesRef.current = barCues;
+    pointsRef.current = data.points;
+  }, [muted, barCues, data.points]);
 
-    // Scrubbing backwards re-arms rather than replaying everything it passes.
-    if (upto <= soundedRef.current) {
-      soundedRef.current = upto;
-    } else {
-      for (let b = soundedRef.current + 1; b <= upto; b += 1) {
-        for (const cue of barCues[b] ?? []) play(cue, muted);
+  const soundTo = useCallback(
+    (index: number) => {
+      if (bars === 0) return;
+      const upto = Math.min(index, bars - 1);
+
+      if (upto <= soundedRef.current) {
+        soundedRef.current = upto;
+      } else {
+        for (let b = soundedRef.current + 1; b <= upto; b += 1) {
+          for (const cue of barCuesRef.current[b] ?? []) play(cue, mutedRef.current);
+        }
+        soundedRef.current = upto;
       }
-      soundedRef.current = upto;
-    }
 
-    const total = data.points[upto]?.total ?? 0;
-    const reached = Math.max(Math.floor(total / FANFARE_AT), 0);
-    if (upto === 0) milestoneRef.current = reached;
-    else if (reached > milestoneRef.current) {
-      milestoneRef.current = reached;
-      play("profit", muted);
-    }
-  }, [cursor, bars, barCues, muted, data.points]);
+      const total = pointsRef.current[upto]?.total ?? 0;
+      const reached = Math.max(Math.floor(total / FANFARE_AT), 0);
+      if (upto === 0) milestoneRef.current = reached;
+      else if (reached > milestoneRef.current) {
+        milestoneRef.current = reached;
+        play("profit", mutedRef.current);
+      }
+    },
+    [bars],
+  );
+
+  useEffect(() => {
+    if (playing) return;
+    soundTo(cursor);
+  }, [cursor, playing, soundTo]);
 
   /**
    * The full stop, on the end card rather than on the last bar.
@@ -672,6 +696,7 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
        * own step run means the trade finishes at the same pace it was watched at.
        */
       paintTo(c, Math.min(1, acc / STEP_MS));
+      soundTo(c);
 
       if (c !== cursorRef.current) {
         cursorRef.current = c;
@@ -688,7 +713,7 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
 
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [playing, speed, bars, paintTo]);
+  }, [playing, speed, bars, paintTo, soundTo]);
 
   const done = finished;
 
@@ -774,7 +799,7 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
   }, [data.fills]);
 
   return (
-    <div className="hl-fade flex flex-col gap-3">
+    <div className="hl-fade flex flex-col gap-3" onPointerDown={() => unlock()}>
       <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_272px]">
         {/* --------------------------------------------------- chart column */}
         <div className="flex min-w-0 flex-col gap-3">

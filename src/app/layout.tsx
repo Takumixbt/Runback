@@ -57,8 +57,21 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Ticker />
             <div className="scrollers min-h-0 flex-1 overflow-y-auto">
               {children}
-              <footer className="mx-auto w-full max-w-[1120px] px-5 pb-10 pt-16 text-mini text-faint">
-                Runback · MIT
+              <footer className="mx-auto flex w-full max-w-[1120px] flex-wrap items-center gap-x-3 gap-y-1 px-5 pb-10 pt-16 text-mini text-faint">
+                <span>Runback</span>
+                <span aria-hidden>·</span>
+                <a
+                  href="https://github.com/Takumixbt/runback"
+                  className="hover:text-muted"
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  GitHub
+                </a>
+                <span aria-hidden>·</span>
+                <a href="https://github.com/Takumixbt/runback/blob/main/LICENSE" className="hover:text-muted">
+                  MIT
+                </a>
               </footer>
             </div>
           </div>

@@ -254,9 +254,10 @@ export function WalletBrowser({
 
   useEffect(() => {
     if (!initial || !parseAccount(initial)) return;
+    // Route mount starts the fill walk. This is the load, not a cascading render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on wallet-page mount
     void load(initial, venueId);
-    // Mount only, and only when the route carried an address.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only; address is from the route
   }, []);
 
   /**
