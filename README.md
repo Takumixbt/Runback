@@ -7,7 +7,7 @@ Paste a perp wallet. Pick a position. Watch it trade, fill by fill, then export 
 
 **[Live demo](https://runbackpnl.vercel.app)** · [MIT License](LICENSE)
 
-![Runback](docs/demo.gif)
+![Runback](demo.gif)
 
 ## What it does
 
