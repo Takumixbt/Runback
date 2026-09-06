@@ -13,13 +13,6 @@
   "bugs": {
     "url": "https://github.com/Takumixbt/runback/issues"
   },
-  "keywords": [
-    "hyperliquid",
-    "perps",
-    "trading",
-    "replay",
-    "nextjs"
-  ],
   "engines": {
     "node": ">=20"
   },
