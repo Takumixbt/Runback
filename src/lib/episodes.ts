@@ -195,6 +195,13 @@ export function episodes(all: Fill[], subject?: string): Episode[] {
         };
         entryQty = 0;
         entryCost = 0;
+        if (cur.truncatedStart) {
+          const held = Math.abs(before);
+          if (held > FLAT) {
+            entryQty = held;
+            entryCost = held * f.px;
+          }
+        }
       }
 
       cur.fills.push(f);
@@ -255,7 +262,9 @@ export function episodes(all: Fill[], subject?: string): Episode[] {
    * first because they are the thing the owner is actually thinking about.
    */
   return out.sort((a, b) => {
-    if (a.open !== b.open) return a.open ? -1 : 1;
+    const ua = unsettled(a);
+    const ub = unsettled(b);
+    if (ua !== ub) return ua ? -1 : 1;
     return Math.abs(b.realized) - Math.abs(a.realized);
   });
 }
@@ -366,6 +375,29 @@ export function whyNoWindow(start: number, end: number, now = Date.now()): strin
 
 /* ------------------------------------------------------------ the replay */
 
+/** Candle a timestamp falls on. Fold, arrows and sound all use this. */
+export function barOf(candles: { t: number }[], ts: number): number {
+  let lo = 0;
+  let hi = candles.length - 1;
+  if (hi < 0) return -1;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (candles[mid]!.t <= ts) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
+/** Open now, or cut mid-hold by idle time. */
+export function unsettled(ep: Pick<Episode, "open" | "truncatedEnd">): boolean {
+  return ep.open || ep.truncatedEnd;
+}
+
+/** First fill to last fill. */
+export function heldMs(replay: Pick<Replay, "start" | "end">): number {
+  return Math.max(0, replay.end - replay.start);
+}
+
 /** One step of the position, as the chart consumes it. */
 export interface Point {
   t: number;
@@ -404,6 +436,11 @@ export interface Replay {
   closedByLiquidation: boolean;
   open: boolean;
   truncatedStart: boolean;
+  truncatedEnd: boolean;
+  start: number;
+  end: number;
+  /** Largest absolute notional held, the denominator `returnOf` uses. */
+  peakNotional: number;
 }
 
 /**
@@ -437,7 +474,8 @@ export function buildReplay(
   }
 
   for (const bar of candles) {
-    while (i < ep.fills.length && ep.fills[i]!.time <= bar.t + 1) {
+    const bi = points.length;
+    while (i < ep.fills.length && barOf(candles, ep.fills[i]!.time) === bi) {
       const f = ep.fills[i]!;
       const signed = f.side === "B" ? f.sz : -f.sz;
       const after = qty + signed;
@@ -505,5 +543,29 @@ export function buildReplay(
     closedByLiquidation: ep.closedByLiquidation,
     open: ep.open,
     truncatedStart: ep.truncatedStart,
+    truncatedEnd: ep.truncatedEnd,
+    start: ep.start,
+    end: ep.end,
+    peakNotional: ep.peakNotional,
   };
+}
+
+/** Still carrying size. */
+export function stillHeld(replay: Replay): boolean {
+  if (replay.open || replay.truncatedEnd) return true;
+  const last = replay.points.at(-1);
+  return !!last && Math.abs(last.qty) > FLAT;
+}
+
+/** Mark minus fees if still held, else realised minus fees. */
+export function settledNet(replay: Replay): number {
+  if (!stillHeld(replay)) return replay.net;
+  const last = replay.points.at(-1);
+  if (!last) return replay.net;
+  return last.total - replay.fees;
+}
+
+export function settledRoe(replay: Replay): number | null {
+  if (!stillHeld(replay)) return replay.roe;
+  return returnOf(settledNet(replay), replay.peakNotional);
 }

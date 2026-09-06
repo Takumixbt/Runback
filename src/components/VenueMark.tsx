@@ -1,15 +1,4 @@
-import type { VenueId } from "@/lib/venue";
-
-/** Official marks, filed under /public/venues from each book's own icon. */
-const SRC: Record<VenueId, string> = {
-  hyperliquid: "/venues/hyperliquid.png",
-  lighter: "/venues/lighter.png",
-  risex: "/venues/risex.svg",
-  drift: "/venues/drift.png",
-  pacifica: "/venues/pacifica.png",
-  jupiter: "/venues/jupiter.png",
-  dydx: "/venues/dydx.png",
-};
+import { VENUE_MARK, type VenueId } from "@/lib/venue";
 
 export function VenueMark({
   id,
@@ -23,7 +12,7 @@ export function VenueMark({
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={SRC[id]}
+      src={VENUE_MARK[id]}
       alt=""
       width={size}
       height={size}

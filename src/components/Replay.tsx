@@ -14,7 +14,8 @@ import {
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import type { Replay as ReplayData } from "@/lib/episodes";
+import { barOf, heldMs, settledNet, settledRoe, stillHeld, type Replay as ReplayData } from "@/lib/episodes";
+import { REFERRAL } from "@/lib/venue";
 import { buildMarkers, exportClip, FORMATS, type Shape } from "@/lib/export";
 import { MAX_CLIP_SECONDS, OUTRO_SECONDS } from "@/lib/clip";
 import { save } from "@/lib/record";
@@ -178,9 +179,14 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
   useEffect(() => {
     const onVis = () => {
       if (document.hidden) setPlaying(false);
+      else unlock();
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
+
+  useEffect(() => {
+    unlock();
   }, []);
 
   /* ------------------------------------------------------------ pre-work */
@@ -202,33 +208,19 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
     [data.points],
   );
 
-  /** Which bar a moment falls in. Binary search, because a chart can hold 1,200 of them. */
-  const barOf = useCallback(
-    (ts: number): number => {
-      let lo = 0;
-      let hi = data.candles.length - 1;
-      if (hi < 0) return -1;
-      while (lo < hi) {
-        const mid = (lo + hi + 1) >> 1;
-        if (data.candles[mid]!.t <= ts) lo = mid;
-        else hi = mid - 1;
-      }
-      return lo;
-    },
-    [data.candles],
-  );
+  const barIndex = useCallback((ts: number): number => barOf(data.candles, ts), [data.candles]);
 
   const fillsAtBar = useMemo(() => {
     const map = new Map<number, typeof data.fills>();
     for (const f of data.fills) {
-      const b = barOf(f.time);
+      const b = barIndex(f.time);
       if (b < 0) continue;
       const list = map.get(b);
       if (list) list.push(f);
       else map.set(b, [f]);
     }
     return map;
-  }, [data, barOf]);
+  }, [data, barIndex]);
 
   /**
    * The wallet's fills as chart markers, built by the same function the exporter uses.
@@ -485,36 +477,56 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
   /* --------------------------------------------------------------- sound */
 
   /**
-   * Sound follows the arrows.
+   * Sound follows the arrows, on the same frame the chart paints them.
    *
-   * One cue per marker the chart actually draws: a buy arrow ticks, a sell arrow
-   * tills, a liquidation keeps its weight. Fills that were too small to earn an
-   * arrow stay silent, which is how a TWAP of twenty slices does not become twenty
-   * dings. The fanfare is a high-water mark every $20K — armed at the opening bar,
-   * so a window that opens mid-position does not begin with four stacked blasts.
+   * Keying this off a `cursor` effect meant the ping waited for React to commit,
+   * and a skipped-frame jump delivered every pending cue in one call. The clock
+   * loop calls this as it crosses a bar — the same moment `paintTo` draws the
+   * arrow — and a paused scrub still goes through the effect below. One cue per
+   * marker: a buy arrow ticks, a sell arrow ticks lower, a liquidation keeps its
+   * weight. Fills too small to mark stay silent. The fanfare is a high-water
+   * mark every $20K, armed at the opening bar so a window that opens mid-position
+   * does not begin with four stacked blasts.
    */
+  const mutedRef = useRef(muted);
+  const barCuesRef = useRef(barCues);
+  const pointsRef = useRef(data.points);
   useEffect(() => {
-    if (bars === 0) return;
-    const upto = Math.min(cursor, bars - 1);
+    mutedRef.current = muted;
+    barCuesRef.current = barCues;
+    pointsRef.current = data.points;
+  }, [muted, barCues, data.points]);
 
-    // Scrubbing backwards re-arms rather than replaying everything it passes.
-    if (upto <= soundedRef.current) {
-      soundedRef.current = upto;
-    } else {
-      for (let b = soundedRef.current + 1; b <= upto; b += 1) {
-        for (const cue of barCues[b] ?? []) play(cue, muted);
+  const soundTo = useCallback(
+    (index: number) => {
+      if (bars === 0) return;
+      const upto = Math.min(index, bars - 1);
+
+      if (upto <= soundedRef.current) {
+        soundedRef.current = upto;
+      } else {
+        for (let b = soundedRef.current + 1; b <= upto; b += 1) {
+          for (const cue of barCuesRef.current[b] ?? []) play(cue, mutedRef.current);
+        }
+        soundedRef.current = upto;
       }
-      soundedRef.current = upto;
-    }
 
-    const total = data.points[upto]?.total ?? 0;
-    const reached = Math.max(Math.floor(total / FANFARE_AT), 0);
-    if (upto === 0) milestoneRef.current = reached;
-    else if (reached > milestoneRef.current) {
-      milestoneRef.current = reached;
-      play("profit", muted);
-    }
-  }, [cursor, bars, barCues, muted, data.points]);
+      const total = pointsRef.current[upto]?.total ?? 0;
+      const reached = Math.max(Math.floor(total / FANFARE_AT), 0);
+      if (upto === 0) milestoneRef.current = reached;
+      else if (reached > milestoneRef.current) {
+        const traded = (barCuesRef.current[upto]?.length ?? 0) > 0;
+        milestoneRef.current = reached;
+        if (traded) play("profit", mutedRef.current);
+      }
+    },
+    [bars],
+  );
+
+  useEffect(() => {
+    if (playing) return;
+    soundTo(cursor);
+  }, [cursor, playing, soundTo]);
 
   /**
    * The full stop, on the end card rather than on the last bar.
@@ -672,6 +684,7 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
        * own step run means the trade finishes at the same pace it was watched at.
        */
       paintTo(c, Math.min(1, acc / STEP_MS));
+      soundTo(c);
 
       if (c !== cursorRef.current) {
         cursorRef.current = c;
@@ -688,7 +701,7 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
 
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
-  }, [playing, speed, bars, paintTo]);
+  }, [playing, speed, bars, paintTo, soundTo]);
 
   const done = finished;
 
@@ -761,8 +774,11 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
   /* -------------------------------------------------------------- render */
 
   const point = data.points[Math.min(cursor, data.points.length - 1)] ?? null;
-  const total = done ? data.net : (point?.total ?? 0);
-  const held = duration(data.candles[bars - 1]!.t - data.candles[0]!.t);
+  const net = settledNet(data);
+  const roe = settledRoe(data);
+  const open = stillHeld(data);
+  const total = done ? net : (point?.total ?? 0);
+  const held = duration(heldMs(data));
   const sideTone = data.side === "LONG" ? UP : data.side === "SHORT" ? DOWN : ACCENT;
 
   const shownFills = useMemo(() => {
@@ -774,7 +790,7 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
   }, [data.fills]);
 
   return (
-    <div className="hl-fade flex flex-col gap-3">
+    <div className="hl-fade flex flex-col gap-3" onPointerDown={() => unlock()}>
       <div className="grid min-w-0 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_272px]">
         {/* --------------------------------------------------- chart column */}
         <div className="flex min-w-0 flex-col gap-3">
@@ -807,7 +823,7 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
                     LIQUIDATED
                   </span>
                 )}
-                {data.open && (
+                {open && (
                   <span className="rounded-[4px] border border-border px-1.5 py-0.5 text-micro tracking-[0.08em] text-faint">
                     OPEN
                   </span>
@@ -906,6 +922,16 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
                   ? `${size(Math.abs(point.qty))} @ ${price(data.avgEntry)}`
                   : "flat"}
               </div>
+              {REFERRAL[data.venue] && (
+                <a
+                  href={REFERRAL[data.venue]}
+                  target="_blank"
+                  rel="sponsored noopener noreferrer"
+                  className="rb-press pointer-events-auto absolute bottom-3 right-14 text-micro text-faint hover:text-muted"
+                >
+                  {data.venueName} ↗
+                </a>
+              )}
 
               {done && (
                 /**
@@ -919,22 +945,22 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
                 <div className="hl-fade pointer-events-none absolute inset-0 flex items-center justify-center bg-ground/80 backdrop-blur-[2px]">
                   <div className="flex flex-col items-center gap-3">
                     <span className="text-micro tracking-[0.12em] text-faint">
-                      {data.closedByLiquidation ? "LIQUIDATED" : "CLOSED"}
+                      {data.closedByLiquidation ? "LIQUIDATED" : open ? "OPEN" : "CLOSED"}
                     </span>
 
                     <div className="flex items-baseline gap-3">
                       <span
                         className="text-hero leading-none tabular-nums"
-                        style={{ color: data.net >= 0 ? UP : DOWN }}
+                        style={{ color: net >= 0 ? UP : DOWN }}
                       >
-                        {signedUsd(data.net)}
+                        {signedUsd(net)}
                       </span>
-                      {data.roe !== null && (
+                      {roe !== null && (
                         <span
                           className="text-head leading-none tabular-nums"
-                          style={{ color: data.roe >= 0 ? UP : DOWN }}
+                          style={{ color: roe >= 0 ? UP : DOWN }}
                         >
-                          {pct(data.roe)}
+                          {pct(roe)}
                         </span>
                       )}
                     </div>
@@ -1059,11 +1085,11 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
             <dl className="flex flex-col">
               <Row label="Realized" value={signedUsd(data.realized)} tone={data.realized} />
               <Row label="Fees" value={`−$${data.fees.toFixed(2)}`} />
-              <Row label="Net" value={signedUsd(data.net)} tone={data.net} />
+              <Row label="Net" value={signedUsd(net)} tone={net} />
               <Row
                 label="Return"
-                value={data.roe === null ? "–" : pct(data.roe)}
-                tone={data.roe ?? undefined}
+                value={roe === null ? "–" : pct(roe)}
+                tone={roe ?? undefined}
               />
               <Row label="Entry" value={price(data.avgEntry)} />
               <Row label="Held" value={held} />

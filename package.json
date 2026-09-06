@@ -1,10 +1,18 @@
 {
   "name": "runback",
   "version": "0.1.0",
-  "description": "Paste a perp wallet, replay a position, export the clip.",
+  "description": "Paste a perp wallet, replay the position as candles, export an MP4.",
   "author": "Takumi",
   "license": "MIT",
   "private": true,
+  "homepage": "https://runbackpnl.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Takumixbt/runback.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Takumixbt/runback/issues"
+  },
   "engines": {
     "node": ">=20"
   },
@@ -15,7 +23,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "check": "tsx scripts/check.ts",
-    "test": "tsx --test tests/**/*.test.ts"
+    "test": "tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "lightweight-charts": "^5.2.0",

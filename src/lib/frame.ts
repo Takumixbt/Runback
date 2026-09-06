@@ -76,6 +76,8 @@ export interface FrameState {
   wallet: string;
   /** Book this trade was taken on. */
   venue: string;
+  /** Optional venue mark, drawn next to the book name. */
+  venueMark: CanvasImageSource | null;
   side: "LONG" | "SHORT" | "FLIP";
   /** Running totals at this instant of the replay. */
   total: number;
@@ -87,6 +89,7 @@ export interface FrameState {
   trades: number;
   fills: PaintFill[];
   liquidated: boolean;
+  open: boolean;
   /** 0 while the replay runs; 0..1 across the end card. */
   outro: number;
   /** Final figures, for the end card. */
@@ -249,7 +252,13 @@ function paintHeader(ctx: CanvasRenderingContext2D, s: FrameState): void {
     });
   }
 
-  draw(ctx, `${s.venue} · ${wide ? s.wallet : shortAddress(s.wallet, 10)}`, pad, baseline + 30 * t, {
+  let vx = pad;
+  const mark = 28 * t;
+  if (s.venueMark) {
+    ctx.drawImage(s.venueMark, vx, baseline + 30 * t - mark + 6 * t, mark, mark);
+    vx += mark + 10 * t;
+  }
+  draw(ctx, `${s.venue} · ${wide ? s.wallet : shortAddress(s.wallet, 10)}`, vx, baseline + 30 * t, {
     size: 20 * t,
     color: TX3,
   });
@@ -511,7 +520,8 @@ function paintOutro(ctx: CanvasRenderingContext2D, s: FrameState): void {
   const cy = L.h / 2;
   const net = s.final.net;
 
-  draw(ctx, s.liquidated ? "LIQUIDATED" : "CLOSED", cx, cy - 104 * t - lift, {
+  const kicker = s.liquidated ? "LIQUIDATED" : s.open ? "OPEN" : "CLOSED";
+  draw(ctx, kicker, cx, cy - 104 * t - lift, {
     size: 26 * t,
     weight: 400,
     color: s.liquidated ? AMBER : TX3,

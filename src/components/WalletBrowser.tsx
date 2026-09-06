@@ -12,6 +12,7 @@ import {
   VENUES,
   venuesFor,
   walletPath,
+  REFERRAL,
   type VenueId,
 } from "@/lib/venue";
 import {
@@ -19,6 +20,7 @@ import {
   episodes as segment,
   MIN_BARS,
   pickWindow,
+  unsettled,
   whyNoWindow,
   type Episode,
   type Replay as ReplayData,
@@ -34,10 +36,6 @@ const UP = "#50d2c1";
 const DOWN = "#ed7088";
 const FLIPPED = "#97fce4";
 const FAINT = "#9aa3a48c";
-const REFERRAL_LINKS: Partial<Record<VenueId, string>> = {
-  hyperliquid: "https://app.hyperliquid.xyz/join/TAKUMI",
-  lighter: "https://app.lighter.xyz/?referral=TAKUMI&source=none",
-};
 
 /**
  * The catalogue paints from the newest tape, not from genesis. Hyperliquid's
@@ -254,9 +252,10 @@ export function WalletBrowser({
 
   useEffect(() => {
     if (!initial || !parseAccount(initial)) return;
+    // Route mount starts the fill walk. This is the load, not a cascading render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch on wallet-page mount
     void load(initial, venueId);
-    // Mount only, and only when the route carried an address.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount only; address is from the route
   }, []);
 
   /**
@@ -297,7 +296,7 @@ export function WalletBrowser({
       : typed.defaultVenue
     : null;
   const chips = typed ? venuesFor(typed.kind) : VENUES;
-  const referral = REFERRAL_LINKS[picked];
+  const referral = REFERRAL[picked];
   const cta =
     "rb-press inline-flex h-11 shrink-0 items-center justify-center rounded-full bg-mint-soft px-5 text-body font-medium text-mint-text hover:brightness-110";
 
@@ -478,7 +477,7 @@ function LoadingPanel({ note }: { note: string }) {
 /** The wallet at a glance, the way the terminal opens with an account summary. */
 function Summary({ eps }: { eps: Episode[] }) {
   const s = useMemo(() => {
-    const closed = eps.filter((e) => !e.open);
+    const closed = eps.filter((e) => !unsettled(e));
     const net = closed.reduce((sum, e) => sum + e.net, 0);
     const wins = closed.filter((e) => e.net > 0).length;
     const best = closed.reduce((m, e) => (e.net > m ? e.net : m), 0);
@@ -571,7 +570,9 @@ function EpisodeTable({
     else {
       // Open first, then by what was at stake, which is the order the list ships in.
       ranked.sort((a, b) => {
-        if (a.open !== b.open) return a.open ? -1 : 1;
+        const ua = unsettled(a);
+        const ub = unsettled(b);
+        if (ua !== ub) return ua ? -1 : 1;
         return Math.abs(b.net) - Math.abs(a.net);
       });
     }
@@ -738,7 +739,7 @@ function EpisodeTable({
                             LIQ
                           </span>
                         )}
-                        {ep.open && (
+                        {unsettled(ep) && (
                           <span className="rounded-[4px] border border-border px-1.5 py-px text-micro tracking-[0.08em] text-faint">
                             OPEN
                           </span>
@@ -754,17 +755,17 @@ function EpisodeTable({
                     </td>
                     <td
                       className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums"
-                      style={{ color: ep.open ? FAINT : ep.net >= 0 ? UP : DOWN }}
+                      style={{ color: unsettled(ep) ? FAINT : ep.net >= 0 ? UP : DOWN }}
                     >
-                      {ep.open ? "–" : signedUsd(ep.net)}
+                      {unsettled(ep) ? "–" : signedUsd(ep.net)}
                     </td>
                     <td
                       className="whitespace-nowrap px-4 py-3.5 text-right tabular-nums"
                       style={{
-                        color: ep.open || roe === null ? FAINT : roe >= 0 ? UP : DOWN,
+                        color: unsettled(ep) || roe === null ? FAINT : roe >= 0 ? UP : DOWN,
                       }}
                     >
-                      {ep.open || roe === null ? "–" : pct(roe)}
+                      {unsettled(ep) || roe === null ? "–" : pct(roe)}
                     </td>
                     <td className="whitespace-nowrap px-4 py-3.5 text-right">
                       {w ? (
@@ -779,7 +780,7 @@ function EpisodeTable({
                             e.stopPropagation();
                             onOpen(ep);
                           }}
-                          aria-label={`Replay ${label} ${ep.side} ${signedUsd(ep.net)}`}
+                          aria-label={`Replay ${label} ${ep.side}${unsettled(ep) ? " open" : ` ${signedUsd(ep.net)}`}`}
                           className={`rb-press min-h-11 rounded-full px-3 text-mini font-medium ${
                             opening === ep.id
                               ? "text-mint"

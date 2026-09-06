@@ -11,12 +11,13 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
 import { fillsFromLegs, type Leg } from "@/lib/fill";
-import { buildReplay, episodes } from "@/lib/episodes";
+import { barOf, buildReplay, episodes, heldMs, settledNet, settledRoe, stillHeld } from "@/lib/episodes";
 import type { Candle, Fill } from "@/lib/hl";
+import { returnOf } from "@/lib/format";
 import { n } from "@/lib/adapter";
 import { candlesFrom } from "@/lib/venues/lighter";
 import { cuesByBar, marksOn, MAX_MARKERS } from "@/lib/marks";
-import { tooSoon } from "@/lib/sound";
+import { LOOKAHEAD, nextCueTime, SPACING } from "@/lib/sound";
 
 const leg = (over: Partial<Leg> & { px: number; sz: number; buy: boolean; time: number }): Leg => ({
   coin: "TEST",
@@ -154,6 +155,169 @@ describe("buildReplay", () => {
     // Flat, so nothing is left to mark to market.
     assert.ok(Math.abs(replay.points.at(-1)?.unrealized ?? 1) < 1e-6);
   });
+
+  test("an open short's settled net marks to market after fees", () => {
+    // Sell 10 @ 100, sell 5 @ 100, still short. Fees 8. Last print 90 → +150 mark,
+    // minus fees. Catalogue `net` is minus fees, which is the PONS-style lie.
+    const fills = fillsFromLegs([
+      leg({ px: 100, sz: 10, buy: false, time: 1_000, fee: 5 }),
+      leg({ px: 100, sz: 5, buy: false, time: 2_000, fee: 3 }),
+    ]);
+    const ep = episodes(fills, "me")[0]!;
+    assert.equal(ep.open, true);
+    assert.equal(ep.side, "SHORT");
+    assert.ok(Math.abs(ep.net + 8) < 1e-9, `catalogue net ${ep.net}`);
+
+    const replay = buildReplay(
+      ep,
+      [bar(1_000, 100), bar(2_000, 90)],
+      "TEST",
+      "me",
+      "1m",
+      "hyperliquid",
+    );
+    const last = replay.points.at(-1)!;
+    assert.ok(Math.abs(last.qty + 15) < 1e-9);
+    assert.ok(Math.abs(last.unrealized - 150) < 1e-6);
+    assert.ok(Math.abs(replay.net + 8) < 1e-9, "stored net stays realised − fees");
+    assert.ok(Math.abs(settledNet(replay) - 142) < 1e-6, `settled ${settledNet(replay)}`);
+    assert.equal(settledRoe(replay), returnOf(142, ep.peakNotional));
+  });
+
+  test("a closed trade's settled net is still realised minus fees", () => {
+    const fills = fillsFromLegs([
+      leg({ px: 100, sz: 10, buy: true, time: 1_000, fee: 2 }),
+      leg({ px: 120, sz: 10, buy: false, time: 2_000, fee: 2 }),
+    ]);
+    const replay = buildReplay(
+      episodes(fills, "me")[0]!,
+      [bar(1_000, 100), bar(2_000, 120)],
+      "TEST",
+      "me",
+      "1m",
+      "hyperliquid",
+    );
+    assert.equal(replay.open, false);
+    assert.ok(Math.abs(replay.net - 196) < 1e-6);
+    assert.equal(settledNet(replay), replay.net);
+    assert.equal(settledRoe(replay), replay.roe);
+  });
+
+  test("a fill inside a bar folds on that bar, with the arrow", () => {
+    const fills = fillsFromLegs([
+      leg({ px: 100, sz: 10, buy: false, time: 30_000 }),
+    ]);
+    const candles = [bar(0, 100), bar(60_000, 100), bar(120_000, 90)];
+    const replay = buildReplay(
+      episodes(fills, "me")[0]!,
+      candles,
+      "TEST",
+      "me",
+      "1m",
+      "hyperliquid",
+    );
+    assert.equal(barOf(candles, 30_000), 0);
+    assert.ok(Math.abs((replay.points[0]?.qty ?? 0) + 10) < 1e-9, "size on bar 0");
+    assert.ok(Math.abs((replay.points[1]?.qty ?? 0) + 10) < 1e-9);
+    const marks = marksOn(replay);
+    assert.ok(marks.some((m) => m.bar === 0 && !m.isBuy));
+  });
+
+  test("an idle cut still marks to market after fees", () => {
+    const hour = 3_600_000;
+    const fills = fillsFromLegs([
+      leg({ px: 100, sz: 10, buy: false, time: 1_000, fee: 5 }),
+      leg({ px: 90, sz: 1, buy: false, time: 1_000 + 7 * hour, fee: 1 }),
+    ]);
+    const eps = episodes(fills, "me");
+    const idle = eps.find((e) => e.truncatedEnd);
+    assert.ok(idle, "never-flat tape splits on idle");
+    assert.equal(idle!.open, false);
+    const replay = buildReplay(
+      idle!,
+      [bar(1_000, 100), bar(120_000, 80)],
+      "TEST",
+      "me",
+      "1m",
+      "hyperliquid",
+    );
+    assert.equal(replay.truncatedEnd, true);
+    assert.equal(stillHeld(replay), true);
+    const last = replay.points.at(-1)!;
+    assert.ok(Math.abs(last.qty + 10) < 1e-9);
+    assert.ok(Math.abs(last.unrealized - 200) < 1e-6);
+    assert.ok(Math.abs(settledNet(replay) - 195) < 1e-6);
+  });
+
+  test("a truncated start's entry matches the fold's inherited basis", () => {
+    const fills: Fill[] = [
+      {
+        coin: "TEST",
+        px: 50,
+        sz: 1,
+        side: "A",
+        time: 1_000,
+        startPosition: -1000,
+        dir: "Open Short",
+        closedPnl: 0,
+        fee: 0,
+        feeToken: "USDC",
+        crossed: true,
+        hash: "h1",
+        tid: 1,
+        twapId: null,
+        liquidatedUser: null,
+      },
+      {
+        coin: "TEST",
+        px: 60,
+        sz: 1,
+        side: "A",
+        time: 2_000,
+        startPosition: -1001,
+        dir: "Open Short",
+        closedPnl: 0,
+        fee: 0,
+        feeToken: "USDC",
+        crossed: true,
+        hash: "h2",
+        tid: 2,
+        twapId: null,
+        liquidatedUser: null,
+      },
+    ];
+    const ep = episodes(fills, "me")[0]!;
+    assert.equal(ep.truncatedStart, true);
+    const expected = (1000 * 50 + 1 * 50 + 1 * 60) / 1002;
+    assert.ok(Math.abs(ep.avgEntry - expected) < 1e-6, `entry ${ep.avgEntry}`);
+    const replay = buildReplay(
+      ep,
+      [bar(1_000, 50), bar(2_000, 60)],
+      "TEST",
+      "me",
+      "1m",
+      "hyperliquid",
+    );
+    assert.ok(Math.abs(replay.avgEntry - expected) < 1e-6);
+    const last = replay.points.at(-1)!;
+    assert.ok(Math.abs(last.qty + 1002) < 1e-6);
+  });
+
+  test("held is the fill span, not the padded candles", () => {
+    const fills = fillsFromLegs([
+      leg({ px: 100, sz: 10, buy: true, time: 10_000 }),
+      leg({ px: 120, sz: 10, buy: false, time: 70_000 }),
+    ]);
+    const replay = buildReplay(
+      episodes(fills, "me")[0]!,
+      [bar(0, 100), bar(60_000, 110), bar(120_000, 120)],
+      "TEST",
+      "me",
+      "1m",
+      "hyperliquid",
+    );
+    assert.equal(heldMs(replay), 60_000);
+  });
 });
 
 describe("Lighter candles", () => {
@@ -244,6 +408,22 @@ describe("marks and soundtrack", () => {
     assert.deepEqual(cues[nBars - 1], ["buy"]);
   });
 
+  test("a $10k fill still gets an arrow next to $50k ones", () => {
+    const nBars = 50;
+    const fills = [
+      ...Array.from({ length: nBars }, (_, i) =>
+        print({ time: (i + 1) * 60_000, side: "A", sz: 500 }),
+      ),
+      print({ time: (nBars + 1) * 60_000, side: "B", sz: 100 }),
+    ];
+    const data = tape(nBars + 1, fills);
+    const marks = marksOn(data);
+    const ten = marks.find((m) => m.isBuy);
+    assert.ok(ten, "the $10k buy must keep its arrow");
+    assert.ok(Math.abs(ten!.usd - 10_000) < 1e-6, `buy notional ${ten?.usd}`);
+    assert.equal(new Set(marks.map((m) => m.bar)).size, nBars + 1);
+  });
+
   test("a bar that bought and sold carries both cues, a liquidation only the thud", () => {
     const data = tape(3, [
       print({ time: 60_000, side: "B", sz: 10 }),
@@ -256,9 +436,15 @@ describe("marks and soundtrack", () => {
     assert.deepEqual(cues[1], ["liquidation"]);
   });
 
-  test("a buy and a sell in the same instant both play; two sells collapse", () => {
-    assert.equal(tooSoon("sell", 10, "buy", 10), false);
-    assert.equal(tooSoon("sell", 20, "sell", 0), true);
-    assert.equal(tooSoon("liquidation", 5, "liquidation", 0), false);
+  test("a buy and a sell in the same instant both get a slot; nothing is dropped", () => {
+    const now = 4.2;
+    const first = nextCueTime(now, Number.NEGATIVE_INFINITY);
+    const second = nextCueTime(now, first);
+    const third = nextCueTime(now, second);
+
+    assert.ok(first >= now + LOOKAHEAD, "live cues sit ahead of currentTime");
+    assert.ok(second - first >= SPACING - 1e-9, "the second arrow still rings");
+    assert.ok(third - second >= SPACING - 1e-9, "a skipped-frame burst stays audible");
+    assert.equal(nextCueTime(now + 1, first), now + 1 + LOOKAHEAD);
   });
 });

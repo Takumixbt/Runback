@@ -34,10 +34,10 @@ import {
 } from "@/lib/clip";
 import { paint, type PaintFill } from "@/lib/frame";
 import { duration, usdCompact } from "@/lib/format";
-import type { Replay } from "@/lib/episodes";
+import { barOf, heldMs, settledNet, settledRoe, stillHeld, type Replay } from "@/lib/episodes";
 import { cuesByBar, marksOn, type Mark } from "@/lib/marks";
 import { renderTrack, type TimedCue } from "@/lib/sound";
-import { sameIdentity } from "@/lib/venue";
+import { sameIdentity, VENUE_MARK } from "@/lib/venue";
 
 const GROUND = "#0f1a1e";
 const LINE = "#273035";
@@ -132,17 +132,8 @@ export async function exportClip(
   }
   const replayFrames = Math.round(seconds * FPS);
 
-  /** Which bar a moment falls in. */
-  const barOf = (ts: number): number => {
-    let lo = 0;
-    let hi = data.candles.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1;
-      if (data.candles[mid]!.t <= ts) lo = mid;
-      else hi = mid - 1;
-    }
-    return lo;
-  };
+  const whichBar = (ts: number): number => Math.max(0, barOf(data.candles, ts));
+  const venueMark = await loadVenueMark(data.venue);
 
   const me = data.wallet;
   const wasLiquidated = (f: { liquidatedUser: string | null }) =>
@@ -161,7 +152,7 @@ export async function exportClip(
   >();
   const fillsPerBar = new Int32Array(bars);
   for (const f of data.fills) {
-    const b = barOf(f.time);
+    const b = whichBar(f.time);
     const cell = cells.get(b) ?? { buy: 0, sell: 0, buySz: 0, sellSz: 0, liq: false };
     if (f.side === "B") {
       cell.buy += f.sz * f.px;
@@ -204,8 +195,8 @@ export async function exportClip(
       if (bar === 0) continue;
       const reached = Math.floor((data.points[bar]?.total ?? 0) / FANFARE_AT);
       if (reached > tier) {
+        if ((barCues[bar]?.length ?? 0) > 0) cues.push({ cue: "profit", at });
         tier = reached;
-        cues.push({ cue: "profit", at });
       }
     }
     // The full stop, on the end card rather than on the last bar.
@@ -447,6 +438,8 @@ export async function exportClip(
         }
 
         const point = data.points[Math.min(barIndex, data.points.length - 1)] ?? null;
+        const net = settledNet(data);
+        const roe = settledRoe(data) ?? 0;
 
         paint(ctx, {
           layout,
@@ -454,28 +447,28 @@ export async function exportClip(
           label: data.label,
           wallet: data.wallet,
           venue: data.venueName,
+          venueMark,
           side: data.side,
-          total: i >= replayFrames ? data.net : (point?.total ?? 0),
+          total: i >= replayFrames ? net : (point?.total ?? 0),
           qty: point?.qty ?? 0,
           avgEntry: data.avgEntry,
           point,
           trades: fillsUpto[barIndex] ?? 0,
           fills: i >= replayFrames ? [] : flashesAt(flashCursor, clipMs),
           liquidated: data.closedByLiquidation,
+          open: stillHeld(data),
           outro:
             i < replayFrames
               ? 0
               : Math.min(1, (i - replayFrames + 1) / (OUTRO_SECONDS * FPS)),
           final: {
-            net: data.net,
+            net,
             realized: data.realized,
             fees: data.fees,
-            roe: data.roe ?? 0,
+            roe,
             peak: data.peak,
             trough: data.trough,
-            held: duration(
-              data.candles[bars - 1]!.t - data.candles[0]!.t,
-            ),
+            held: duration(heldMs(data)),
           },
         });
       },
@@ -492,6 +485,18 @@ export async function exportClip(
   } finally {
     chart.remove();
     host.remove();
+  }
+}
+
+async function loadVenueMark(id: Replay["venue"]): Promise<HTMLImageElement | null> {
+  try {
+    const img = new Image();
+    img.decoding = "async";
+    img.src = VENUE_MARK[id];
+    await img.decode();
+    return img;
+  } catch {
+    return null;
   }
 }
 

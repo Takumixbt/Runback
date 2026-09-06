@@ -99,6 +99,22 @@ export const VENUES: readonly Venue[] = [
   },
 ];
 
+export const REFERRAL: Partial<Record<VenueId, string>> = {
+  hyperliquid: "https://app.hyperliquid.xyz/join/TAKUMI",
+  lighter: "https://app.lighter.xyz/?referral=TAKUMI&source=none",
+};
+
+/** Official marks, filed under /public/venues from each book's own icon. */
+export const VENUE_MARK: Record<VenueId, string> = {
+  hyperliquid: "/venues/hyperliquid.png",
+  lighter: "/venues/lighter.png",
+  risex: "/venues/risex.svg",
+  drift: "/venues/drift.png",
+  pacifica: "/venues/pacifica.png",
+  jupiter: "/venues/jupiter.png",
+  dydx: "/venues/dydx.png",
+};
+
 const VENUE_IDS: VenueId[] = VENUES.map((v) => v.id);
 
 export function isVenueId(v: string): v is VenueId {
