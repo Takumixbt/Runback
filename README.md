@@ -4,7 +4,7 @@ You paste a wallet from a perp book we can actually read. Fills fold into positi
 
 [runbackpnl.vercel.app](https://runbackpnl.vercel.app)
 
-![Runback](docs/home.png)
+![Runback](docs/demo.gif)
 
 The paste is `0x` on Hyperliquid, Lighter and RiseX, a Solana key on Drift, Pacifica and Jupiter, and `dydx1` on dYdX. History that has to be signed is out of reach.
 

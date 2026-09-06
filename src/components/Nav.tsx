@@ -38,17 +38,6 @@ export function Nav() {
         <span className="text-[15px] font-medium tracking-tight text-title">Runback</span>
       </Link>
 
-      {onHome && (
-        <a
-          href="https://github.com/Takumixbt/runback"
-          target="_blank"
-          rel="noreferrer"
-          className="rb-press inline-flex h-11 items-center text-mini text-muted hover:text-tx"
-        >
-          GitHub
-        </a>
-      )}
-
       {!onHome && (
         <form onSubmit={submit} className="flex min-w-0 flex-1 justify-end">
           <div

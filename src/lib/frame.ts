@@ -87,6 +87,8 @@ export interface FrameState {
   trades: number;
   fills: PaintFill[];
   liquidated: boolean;
+  /** Still in the market; the end card says OPEN rather than CLOSED. */
+  open: boolean;
   /** 0 while the replay runs; 0..1 across the end card. */
   outro: number;
   /** Final figures, for the end card. */
@@ -511,7 +513,8 @@ function paintOutro(ctx: CanvasRenderingContext2D, s: FrameState): void {
   const cy = L.h / 2;
   const net = s.final.net;
 
-  draw(ctx, s.liquidated ? "LIQUIDATED" : "CLOSED", cx, cy - 104 * t - lift, {
+  const kicker = s.liquidated ? "LIQUIDATED" : s.open ? "OPEN" : "CLOSED";
+  draw(ctx, kicker, cx, cy - 104 * t - lift, {
     size: 26 * t,
     weight: 400,
     color: s.liquidated ? AMBER : TX3,

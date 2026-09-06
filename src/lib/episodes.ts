@@ -404,6 +404,8 @@ export interface Replay {
   closedByLiquidation: boolean;
   open: boolean;
   truncatedStart: boolean;
+  /** Largest absolute notional held, the denominator `returnOf` uses. */
+  peakNotional: number;
 }
 
 /**
@@ -505,5 +507,30 @@ export function buildReplay(
     closedByLiquidation: ep.closedByLiquidation,
     open: ep.open,
     truncatedStart: ep.truncatedStart,
+    peakNotional: ep.peakNotional,
   };
+}
+
+/**
+ * The number the replay should settle on.
+ *
+ * Closed trades keep realised minus fees: that is the fill tape, and it does not
+ * need a mark. Open ones have no exit, so `Episode.net` is often just minus fees —
+ * a still-open short that is in the money then reads as a loser. The last bar's
+ * running total already carries the mark; subtract fees once, at the end.
+ *
+ * In-progress playback still uses `point.total` (mark, before fees). Only the
+ * finished header, the Net row, and the end card use this.
+ */
+export function settledNet(replay: Replay): number {
+  if (!replay.open) return replay.net;
+  const last = replay.points.at(-1);
+  if (!last) return replay.net;
+  return last.total - replay.fees;
+}
+
+/** Return on the same figure `settledNet` shows. Closed trades keep the catalogue ROE. */
+export function settledRoe(replay: Replay): number | null {
+  if (!replay.open) return replay.roe;
+  return returnOf(settledNet(replay), replay.peakNotional);
 }

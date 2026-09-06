@@ -34,7 +34,7 @@ import {
 } from "@/lib/clip";
 import { paint, type PaintFill } from "@/lib/frame";
 import { duration, usdCompact } from "@/lib/format";
-import type { Replay } from "@/lib/episodes";
+import { settledNet, settledRoe, type Replay } from "@/lib/episodes";
 import { cuesByBar, marksOn, type Mark } from "@/lib/marks";
 import { renderTrack, type TimedCue } from "@/lib/sound";
 import { sameIdentity } from "@/lib/venue";
@@ -447,6 +447,8 @@ export async function exportClip(
         }
 
         const point = data.points[Math.min(barIndex, data.points.length - 1)] ?? null;
+        const net = settledNet(data);
+        const roe = settledRoe(data) ?? 0;
 
         paint(ctx, {
           layout,
@@ -455,22 +457,23 @@ export async function exportClip(
           wallet: data.wallet,
           venue: data.venueName,
           side: data.side,
-          total: i >= replayFrames ? data.net : (point?.total ?? 0),
+          total: i >= replayFrames ? net : (point?.total ?? 0),
           qty: point?.qty ?? 0,
           avgEntry: data.avgEntry,
           point,
           trades: fillsUpto[barIndex] ?? 0,
           fills: i >= replayFrames ? [] : flashesAt(flashCursor, clipMs),
           liquidated: data.closedByLiquidation,
+          open: data.open,
           outro:
             i < replayFrames
               ? 0
               : Math.min(1, (i - replayFrames + 1) / (OUTRO_SECONDS * FPS)),
           final: {
-            net: data.net,
+            net,
             realized: data.realized,
             fees: data.fees,
-            roe: data.roe ?? 0,
+            roe,
             peak: data.peak,
             trough: data.trough,
             held: duration(

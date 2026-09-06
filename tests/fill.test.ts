@@ -11,8 +11,9 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
 import { fillsFromLegs, type Leg } from "@/lib/fill";
-import { buildReplay, episodes } from "@/lib/episodes";
+import { buildReplay, episodes, settledNet, settledRoe } from "@/lib/episodes";
 import type { Candle, Fill } from "@/lib/hl";
+import { returnOf } from "@/lib/format";
 import { n } from "@/lib/adapter";
 import { candlesFrom } from "@/lib/venues/lighter";
 import { cuesByBar, marksOn, MAX_MARKERS } from "@/lib/marks";
@@ -153,6 +154,53 @@ describe("buildReplay", () => {
     assert.ok(Math.abs(replay.points.at(-1)?.qty ?? 1) < 1e-6);
     // Flat, so nothing is left to mark to market.
     assert.ok(Math.abs(replay.points.at(-1)?.unrealized ?? 1) < 1e-6);
+  });
+
+  test("an open short's settled net marks to market after fees", () => {
+    // Sell 10 @ 100, sell 5 @ 100, still short. Fees 8. Last print 90 → +150 mark,
+    // minus fees. Catalogue `net` is minus fees, which is the PONS-style lie.
+    const fills = fillsFromLegs([
+      leg({ px: 100, sz: 10, buy: false, time: 1_000, fee: 5 }),
+      leg({ px: 100, sz: 5, buy: false, time: 2_000, fee: 3 }),
+    ]);
+    const ep = episodes(fills, "me")[0]!;
+    assert.equal(ep.open, true);
+    assert.equal(ep.side, "SHORT");
+    assert.ok(Math.abs(ep.net + 8) < 1e-9, `catalogue net ${ep.net}`);
+
+    const replay = buildReplay(
+      ep,
+      [bar(1_000, 100), bar(2_000, 90)],
+      "TEST",
+      "me",
+      "1m",
+      "hyperliquid",
+    );
+    const last = replay.points.at(-1)!;
+    assert.ok(Math.abs(last.qty + 15) < 1e-9);
+    assert.ok(Math.abs(last.unrealized - 150) < 1e-6);
+    assert.ok(Math.abs(replay.net + 8) < 1e-9, "stored net stays realised − fees");
+    assert.ok(Math.abs(settledNet(replay) - 142) < 1e-6, `settled ${settledNet(replay)}`);
+    assert.equal(settledRoe(replay), returnOf(142, ep.peakNotional));
+  });
+
+  test("a closed trade's settled net is still realised minus fees", () => {
+    const fills = fillsFromLegs([
+      leg({ px: 100, sz: 10, buy: true, time: 1_000, fee: 2 }),
+      leg({ px: 120, sz: 10, buy: false, time: 2_000, fee: 2 }),
+    ]);
+    const replay = buildReplay(
+      episodes(fills, "me")[0]!,
+      [bar(1_000, 100), bar(2_000, 120)],
+      "TEST",
+      "me",
+      "1m",
+      "hyperliquid",
+    );
+    assert.equal(replay.open, false);
+    assert.ok(Math.abs(replay.net - 196) < 1e-6);
+    assert.equal(settledNet(replay), replay.net);
+    assert.equal(settledRoe(replay), replay.roe);
   });
 });
 

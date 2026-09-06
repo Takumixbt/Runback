@@ -14,7 +14,7 @@ import {
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import type { Replay as ReplayData } from "@/lib/episodes";
+import { settledNet, settledRoe, type Replay as ReplayData } from "@/lib/episodes";
 import { buildMarkers, exportClip, FORMATS, type Shape } from "@/lib/export";
 import { MAX_CLIP_SECONDS, OUTRO_SECONDS } from "@/lib/clip";
 import { save } from "@/lib/record";
@@ -786,7 +786,9 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
   /* -------------------------------------------------------------- render */
 
   const point = data.points[Math.min(cursor, data.points.length - 1)] ?? null;
-  const total = done ? data.net : (point?.total ?? 0);
+  const net = settledNet(data);
+  const roe = settledRoe(data);
+  const total = done ? net : (point?.total ?? 0);
   const held = duration(data.candles[bars - 1]!.t - data.candles[0]!.t);
   const sideTone = data.side === "LONG" ? UP : data.side === "SHORT" ? DOWN : ACCENT;
 
@@ -944,22 +946,22 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
                 <div className="hl-fade pointer-events-none absolute inset-0 flex items-center justify-center bg-ground/80 backdrop-blur-[2px]">
                   <div className="flex flex-col items-center gap-3">
                     <span className="text-micro tracking-[0.12em] text-faint">
-                      {data.closedByLiquidation ? "LIQUIDATED" : "CLOSED"}
+                      {data.closedByLiquidation ? "LIQUIDATED" : data.open ? "OPEN" : "CLOSED"}
                     </span>
 
                     <div className="flex items-baseline gap-3">
                       <span
                         className="text-hero leading-none tabular-nums"
-                        style={{ color: data.net >= 0 ? UP : DOWN }}
+                        style={{ color: net >= 0 ? UP : DOWN }}
                       >
-                        {signedUsd(data.net)}
+                        {signedUsd(net)}
                       </span>
-                      {data.roe !== null && (
+                      {roe !== null && (
                         <span
                           className="text-head leading-none tabular-nums"
-                          style={{ color: data.roe >= 0 ? UP : DOWN }}
+                          style={{ color: roe >= 0 ? UP : DOWN }}
                         >
-                          {pct(data.roe)}
+                          {pct(roe)}
                         </span>
                       )}
                     </div>
@@ -1084,11 +1086,11 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
             <dl className="flex flex-col">
               <Row label="Realized" value={signedUsd(data.realized)} tone={data.realized} />
               <Row label="Fees" value={`−$${data.fees.toFixed(2)}`} />
-              <Row label="Net" value={signedUsd(data.net)} tone={data.net} />
+              <Row label="Net" value={signedUsd(net)} tone={net} />
               <Row
                 label="Return"
-                value={data.roe === null ? "–" : pct(data.roe)}
-                tone={data.roe ?? undefined}
+                value={roe === null ? "–" : pct(roe)}
+                tone={roe ?? undefined}
               />
               <Row label="Entry" value={price(data.avgEntry)} />
               <Row label="Held" value={held} />
