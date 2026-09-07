@@ -1,5 +1,9 @@
 /**
  * Which bars carry arrows — and therefore which bars carry fill sounds.
+ *
+ * A TWAP is one order. Its slices fold into a single mark on the bar that did
+ * the most size, labeled with the whole notional, so a hundred prints do not
+ * become a hundred arrows.
  */
 
 import { barOf, type Replay } from "./episodes";
@@ -20,19 +24,55 @@ export interface Mark {
 }
 
 type Tape = Pick<Replay, "candles" | "fills" | "wallet">;
+type Agg = { buy: number; sell: number; liq: boolean };
+
+function add(cell: Agg, side: "A" | "B", usd: number, liq: boolean): Agg {
+  if (side === "B") cell.buy += usd;
+  else cell.sell += usd;
+  if (liq) cell.liq = true;
+  return cell;
+}
 
 /** The arrows the chart will draw, oldest bar first, buy before sell on the same bar. */
 export function marksOn(data: Tape): Mark[] {
   const me = data.wallet;
+  const byBar = new Map<number, Agg>();
+  const twapBars = new Map<number, Map<number, Agg>>();
 
-  const byBar = new Map<number, { buy: number; sell: number; liq: boolean }>();
   for (const f of data.fills) {
     const b = Math.max(0, barOf(data.candles, f.time));
-    const cell = byBar.get(b) ?? { buy: 0, sell: 0, liq: false };
-    if (f.side === "B") cell.buy += f.sz * f.px;
-    else cell.sell += f.sz * f.px;
-    if (f.liquidatedUser && sameIdentity(f.liquidatedUser, me)) cell.liq = true;
-    byBar.set(b, cell);
+    const usd = f.sz * f.px;
+    const liq = !!(f.liquidatedUser && sameIdentity(f.liquidatedUser, me));
+    if (f.twapId != null) {
+      let bars = twapBars.get(f.twapId);
+      if (!bars) {
+        bars = new Map();
+        twapBars.set(f.twapId, bars);
+      }
+      bars.set(b, add(bars.get(b) ?? { buy: 0, sell: 0, liq: false }, f.side, usd, liq));
+    } else {
+      byBar.set(b, add(byBar.get(b) ?? { buy: 0, sell: 0, liq: false }, f.side, usd, liq));
+    }
+  }
+
+  for (const bars of twapBars.values()) {
+    let tot: Agg = { buy: 0, sell: 0, liq: false };
+    let peakBar = 0;
+    let peakMoved = -1;
+    for (const [bar, cell] of bars) {
+      tot = add(tot, "B", cell.buy, cell.liq);
+      tot = add(tot, "A", cell.sell, false);
+      const moved = cell.buy + cell.sell;
+      if (moved > peakMoved || (moved === peakMoved && bar > peakBar)) {
+        peakMoved = moved;
+        peakBar = bar;
+      }
+    }
+    const cell = byBar.get(peakBar) ?? { buy: 0, sell: 0, liq: false };
+    cell.buy += tot.buy;
+    cell.sell += tot.sell;
+    cell.liq = cell.liq || tot.liq;
+    byBar.set(peakBar, cell);
   }
 
   const scored = [...byBar.entries()].map(([bar, cell]) => ({

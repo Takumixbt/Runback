@@ -14,7 +14,7 @@ import {
   type Time,
   type UTCTimestamp,
 } from "lightweight-charts";
-import { barOf, heldMs, settledNet, settledRoe, stillHeld, type Replay as ReplayData } from "@/lib/episodes";
+import { heldMs, settledNet, settledRoe, stillHeld, type Replay as ReplayData } from "@/lib/episodes";
 import { REFERRAL } from "@/lib/venue";
 import { buildMarkers, exportClip, FORMATS, type Shape } from "@/lib/export";
 import { MAX_CLIP_SECONDS, OUTRO_SECONDS } from "@/lib/clip";
@@ -208,20 +208,6 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
     [data.points],
   );
 
-  const barIndex = useCallback((ts: number): number => barOf(data.candles, ts), [data.candles]);
-
-  const fillsAtBar = useMemo(() => {
-    const map = new Map<number, typeof data.fills>();
-    for (const f of data.fills) {
-      const b = barIndex(f.time);
-      if (b < 0) continue;
-      const list = map.get(b);
-      if (list) list.push(f);
-      else map.set(b, [f]);
-    }
-    return map;
-  }, [data, barIndex]);
-
   /**
    * The wallet's fills as chart markers, built by the same function the exporter uses.
    *
@@ -230,10 +216,20 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
    * otherwise stacks into an unreadable ribbon, and the per-frame filter's cost scales
    * with fill count. `upto` turns that filter into a slice of a pre-sorted array.
    */
-  const { markers: allMarkers, upto: markersUpto, cues: barCues } = useMemo(
+  const { markers: allMarkers, upto: markersUpto, cues: barCues, marks } = useMemo(
     () => buildMarkers(data),
     [data],
   );
+
+  const marksAtBar = useMemo(() => {
+    const map = new Map<number, typeof marks>();
+    for (const m of marks) {
+      const list = map.get(m.bar);
+      if (list) list.push(m);
+      else map.set(m.bar, [m]);
+    }
+    return map;
+  }, [marks]);
 
   /* -------------------------------------------------------------- charts */
 
@@ -413,6 +409,18 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
       const chart = chartRef.current;
       if (!series || !chart || bars === 0) return;
       const i = Math.min(Math.max(index, 0), bars - 1);
+      const bar = candleData[i]!;
+      const raw = Math.min(Math.max(frac, 0), 1);
+      /** Smoothstep: a linear walk reads mechanical, which is what a slideshow looks like. */
+      const p = raw * raw * (3 - 2 * raw);
+      const close = bar.open + (bar.close - bar.open) * p;
+      const forming = {
+        time: bar.time,
+        open: bar.open,
+        close,
+        high: Math.max(bar.open, close, bar.open + (bar.high - bar.open) * p),
+        low: Math.min(bar.open, close, bar.open + (bar.low - bar.open) * p),
+      };
 
       if (paintedRef.current !== i) {
         /**
@@ -436,24 +444,14 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
           chart.timeScale().scrollToRealTime();
         }
 
-        markersRef.current?.setMarkers(allMarkers.slice(0, markersUpto[i] ?? 0));
         pnlSeriesRef.current?.setData(pnlData.slice(0, i + 1));
         paintedRef.current = i;
+        series.update(forming);
+        // After the forming bar is on the series. Marks set before that were dropped.
+        markersRef.current?.setMarkers(allMarkers.slice(0, markersUpto[i] ?? 0));
+      } else {
+        series.update(forming);
       }
-
-      const bar = candleData[i]!;
-      const raw = Math.min(Math.max(frac, 0), 1);
-      /** Smoothstep: a linear walk reads mechanical, which is what a slideshow looks like. */
-      const p = raw * raw * (3 - 2 * raw);
-      const close = bar.open + (bar.close - bar.open) * p;
-      series.update({
-        time: bar.time,
-        open: bar.open,
-        close,
-        // Wick grows out of the open alongside the body, as a live candle's does.
-        high: Math.max(bar.open, close, bar.open + (bar.high - bar.open) * p),
-        low: Math.min(bar.open, close, bar.open + (bar.low - bar.open) * p),
-      });
     },
     [bars, candleData, pnlData, allMarkers, markersUpto],
   );
@@ -547,41 +545,20 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
   }, [finished, muted]);
 
   /**
-   * A fill lands: wash the chart, float the number.
-   *
-   * Keyed off the bar index rather than the clock, so scrubbing to a bar replays its
-   * fills and a paused chart stays still. The unit is the LABEL, not the fill: a TWAP
-   * puts twenty slices in one bar, and twenty numbers climbing the screen together say
-   * less than two do — so a bar's fills are summed per side before anything is shown.
-   *
-   * A new fill pushes the previous one OUT rather than stacking on it. At eight times
-   * speed a busy wallet lands fills faster than a label can finish leaving, and they
-   * piled up on top of each other; now the outgoing label fades and keeps drifting from
-   * wherever it had got to, which reads as being displaced rather than as two labels
-   * fighting.
+   * An arrow lands: wash the chart, float the number. Same bars as the soundtrack.
    */
   useEffect(() => {
-    const at = fillsAtBar.get(cursor);
+    const at = marksAtBar.get(cursor);
     if (!at || at.length === 0) return;
 
-    const grouped = new Map<string, { isBuy: boolean; liq: boolean; usd: number; sz: number }>();
-    for (const f of at) {
-      const liq = wasLiquidated(f);
-      const key = liq ? "liq" : f.side;
-      const held = grouped.get(key) ?? { isBuy: f.side === "B", liq, usd: 0, sz: 0 };
-      held.usd += f.sz * f.px;
-      held.sz += f.sz;
-      grouped.set(key, held);
-    }
-
-    const born: Flash[] = [...grouped.values()].map((v, i) => ({
+    const born: Flash[] = at.map((m, i) => ({
       id: (flashId += 1),
-      isBuy: v.isBuy,
-      liq: v.liq,
-      usd: v.usd,
-      px: v.sz > 0 ? v.usd / v.sz : 0,
+      isBuy: m.isBuy,
+      liq: m.liq,
+      usd: m.usd,
+      px: data.candles[m.bar]?.c ?? 0,
       slot: i,
-      phase: "enter",
+      phase: "enter" as const,
       bornAt: 0,
     }));
 
@@ -612,7 +589,7 @@ export function Replay({ data, onClose }: { data: ReplayData; onClose?: () => vo
       cancelAnimationFrame(raf);
       cancelAnimationFrame(show);
     };
-  }, [cursor, fillsAtBar, wasLiquidated]);
+  }, [cursor, marksAtBar, data.candles]);
 
   /**
    * Labels retire themselves, on a clock of their own.

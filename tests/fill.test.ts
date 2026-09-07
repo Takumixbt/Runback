@@ -436,6 +436,23 @@ describe("marks and soundtrack", () => {
     assert.deepEqual(cues[1], ["liquidation"]);
   });
 
+  test("a TWAP is one arrow on its busiest bar, not a ping on every slice", () => {
+    const nBars = 24;
+    const fills = Array.from({ length: nBars }, (_, i) =>
+      print({ time: (i + 1) * 60_000, side: "B", sz: i === 11 ? 40 : 5 }),
+    ).map((f) => ({ ...f, twapId: 7 }));
+    const data = tape(nBars, fills);
+    const marks = marksOn(data);
+    const cues = cuesByBar(marks, nBars);
+    assert.equal(marks.length, 1, "one order, one arrow");
+    assert.equal(marks[0]?.bar, 11);
+    assert.ok(Math.abs(marks[0]!.usd - 155 * 100) < 1e-6, `folded notional ${marks[0]?.usd}`);
+    for (let b = 0; b < nBars; b += 1) {
+      if (b === 11) assert.deepEqual(cues[b], ["buy"]);
+      else assert.deepEqual(cues[b], []);
+    }
+  });
+
   test("a buy and a sell in the same instant both get a slot; nothing is dropped", () => {
     const now = 4.2;
     const first = nextCueTime(now, Number.NEGATIVE_INFINITY);

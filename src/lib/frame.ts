@@ -253,10 +253,10 @@ function paintHeader(ctx: CanvasRenderingContext2D, s: FrameState): void {
   }
 
   let vx = pad;
-  const mark = 28 * t;
+  const mark = 16 * t;
   if (s.venueMark) {
-    ctx.drawImage(s.venueMark, vx, baseline + 30 * t - mark + 6 * t, mark, mark);
-    vx += mark + 10 * t;
+    ctx.drawImage(s.venueMark, vx, baseline + 30 * t - mark + 4 * t, mark, mark);
+    vx += mark + 8 * t;
   }
   draw(ctx, `${s.venue} · ${wide ? s.wallet : shortAddress(s.wallet, 10)}`, vx, baseline + 30 * t, {
     size: 20 * t,

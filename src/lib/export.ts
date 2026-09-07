@@ -37,7 +37,7 @@ import { duration, usdCompact } from "@/lib/format";
 import { barOf, heldMs, settledNet, settledRoe, stillHeld, type Replay } from "@/lib/episodes";
 import { cuesByBar, marksOn, type Mark } from "@/lib/marks";
 import { renderTrack, type TimedCue } from "@/lib/sound";
-import { sameIdentity, VENUE_MARK } from "@/lib/venue";
+import { VENUE_MARK } from "@/lib/venue";
 
 const GROUND = "#0f1a1e";
 const LINE = "#273035";
@@ -135,34 +135,9 @@ export async function exportClip(
   const whichBar = (ts: number): number => Math.max(0, barOf(data.candles, ts));
   const venueMark = await loadVenueMark(data.venue);
 
-  const me = data.wallet;
-  const wasLiquidated = (f: { liquidatedUser: string | null }) =>
-    !!f.liquidatedUser && sameIdentity(f.liquidatedUser, me);
-
-  /**
-   * One cell per bar that traded: money in, money out, whether it was forced.
-   *
-   * The soundtrack, the fill labels and the running fill count all read from this, so
-   * none of them can disagree about what happened in a bar — re-deriving it per
-   * consumer is exactly how an earlier exporter drifted away from the screen.
-   */
-  const cells = new Map<
-    number,
-    { buy: number; sell: number; buySz: number; sellSz: number; liq: boolean }
-  >();
   const fillsPerBar = new Int32Array(bars);
   for (const f of data.fills) {
     const b = whichBar(f.time);
-    const cell = cells.get(b) ?? { buy: 0, sell: 0, buySz: 0, sellSz: 0, liq: false };
-    if (f.side === "B") {
-      cell.buy += f.sz * f.px;
-      cell.buySz += f.sz;
-    } else {
-      cell.sell += f.sz * f.px;
-      cell.sellSz += f.sz;
-    }
-    if (wasLiquidated(f)) cell.liq = true;
-    cells.set(b, cell);
     fillsPerBar[b] = (fillsPerBar[b] ?? 0) + 1;
   }
   /** Fills landed at or before each bar, so a frame reads a cell instead of scanning. */
@@ -183,7 +158,7 @@ export async function exportClip(
    * are not fill markers; they keep their own rules. A cue sits at bar × stepMs,
    * which is exactly where the frame walk puts that bar.
    */
-  const { markers: allMarkers, upto: markersUpto, cues: barCues } = buildMarkers(data);
+  const { markers: allMarkers, upto: markersUpto, cues: barCues, marks } = buildMarkers(data);
   const track = await (async () => {
     const cues: TimedCue[] = [];
     let tier = Math.max(Math.floor((data.points[0]?.total ?? 0) / FANFARE_AT), 0);
@@ -295,28 +270,31 @@ export async function exportClip(
 
   /** Identical to the screen's `paintTo`, so a clip is the replay rather than a cousin. */
   const stepTo = (index: number, frac: number): void => {
-    if (painted !== index) {
-      if (index > 0 && painted === index - 1) {
-        // The bar that was forming is history now; snap it to its real close.
-        series.update(candleData[index - 1]!);
-      } else {
-        series.setData(candleData.slice(0, index));
-        chart.timeScale().scrollToRealTime();
-      }
-      markerApi.setMarkers(allMarkers.slice(0, markersUpto[index] ?? 0));
-      painted = index;
-    }
-
     const bar = candleData[index]!;
     const p = frac * frac * (3 - 2 * frac);
     const close = bar.open + (bar.close - bar.open) * p;
-    series.update({
+    const forming = {
       time: bar.time,
       open: bar.open,
       close,
       high: Math.max(bar.open, close, bar.open + (bar.high - bar.open) * p),
       low: Math.min(bar.open, close, bar.open + (bar.low - bar.open) * p),
-    });
+    };
+
+    if (painted !== index) {
+      if (index > 0 && painted === index - 1) {
+        series.update(candleData[index - 1]!);
+      } else {
+        series.setData(candleData.slice(0, index));
+        chart.timeScale().scrollToRealTime();
+      }
+      painted = index;
+      series.update(forming);
+      // Markers after the forming bar exists — the library drops a mark whose time is not on the series yet.
+      markerApi.setMarkers(allMarkers.slice(0, markersUpto[index] ?? 0));
+    } else {
+      series.update(forming);
+    }
   };
 
   /* -------------------------------------------------------- frame source */
@@ -338,29 +316,24 @@ export async function exportClip(
     px: number;
   }
   const filled: { bar: number; at: number; fills: Merged[] }[] = [];
-  for (const [bar, cell] of [...cells.entries()].sort((a, b) => a[0] - b[0])) {
-    const fills: Merged[] = [];
-    if (cell.liq) {
-      const usd = cell.buy + cell.sell;
-      const sz = cell.buySz + cell.sellSz;
-      fills.push({ isBuy: cell.buy >= cell.sell, liq: true, usd, px: sz > 0 ? usd / sz : 0 });
-    } else {
-      if (cell.buy > 0)
-        fills.push({
-          isBuy: true,
-          liq: false,
-          usd: cell.buy,
-          px: cell.buySz > 0 ? cell.buy / cell.buySz : 0,
-        });
-      if (cell.sell > 0)
-        fills.push({
-          isBuy: false,
-          liq: false,
-          usd: cell.sell,
-          px: cell.sellSz > 0 ? cell.sell / cell.sellSz : 0,
-        });
-    }
-    filled.push({ bar, at: bar * stepMs, fills });
+  const grouped = new Map<number, Mark[]>();
+  for (const m of marks) {
+    const list = grouped.get(m.bar);
+    if (list) list.push(m);
+    else grouped.set(m.bar, [m]);
+  }
+  for (const bar of [...grouped.keys()].sort((a, b) => a - b)) {
+    const ms = grouped.get(bar)!;
+    filled.push({
+      bar,
+      at: bar * stepMs,
+      fills: ms.map((m) => ({
+        isBuy: m.isBuy,
+        liq: m.liq,
+        usd: m.usd,
+        px: data.candles[m.bar]?.c ?? 0,
+      })),
+    });
   }
 
   /**
@@ -514,6 +487,7 @@ export function buildMarkers(data: Replay): {
   upto: Int32Array;
   /** Fill sounds for each bar, one cue per arrow. */
   cues: ReturnType<typeof cuesByBar>;
+  marks: Mark[];
 } {
   const bars = data.candles.length;
   const pending = marksOn(data);
@@ -572,7 +546,7 @@ export function buildMarkers(data: Replay): {
     while (k < ordered.length && ordered[k]!.bar <= i) k += 1;
     upto[i] = k;
   }
-  return { markers, upto, cues: cuesByBar(ordered, bars) };
+  return { markers, upto, cues: cuesByBar(ordered, bars), marks: ordered };
 }
 
 export { FORMATS, type Shape };
