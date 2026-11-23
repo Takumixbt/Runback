@@ -7,7 +7,11 @@ Paste a wallet. Watch it trade.
 
 **[Live demo](https://runbackpnl.vercel.app)** · [MIT License](LICENSE)
 
-![Runback](https://runbackpnl.vercel.app/demo.gif)
+<p align="center">
+  <a href="https://runbackpnl.vercel.app">
+    <img src="https://runbackpnl.vercel.app/demo.gif" alt="A Runback replay: candles forming, fills landing, PnL running" width="760" />
+  </a>
+</p>
 
 ## What it does
 
@@ -45,7 +49,7 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Nothing in `.env.example` is required.
+Open [http://localhost:3000](http://localhost:3000). No environment variables are required.
 
 ```bash
 npm run typecheck
@@ -54,9 +58,7 @@ npm test
 npm run build
 ```
 
-CI runs those four on Node 20 and 22.
-
-`npm run check` walks a live Hyperliquid wallet, folds it, and reconciles bar-by-bar PnL against the exchange's per-fill number. It is not in CI: it fails on someone else's rate limit.
+CI runs those four on Node 20 and 22. `npm run check` walks a live Hyperliquid wallet and reconciles bar-by-bar PnL against the exchange's per-fill number — it is not in CI because it fails on someone else's rate limit.
 
 ## How a replay is built
 
@@ -66,11 +68,11 @@ CI runs those four on Node 20 and 22.
 4. **Replay** — the chart walks one bar at a time (600ms at 1×). Markers and pings share the same bar list, so an arrow without a sound is a bug.
 5. **Export** — an off-screen chart is stepped and encoded with WebCodecs. The soundtrack is rendered offline, not recorded from the speakers.
 
-The arithmetic lives in `src/lib/fill.ts` and `src/lib/episodes.ts`. `tests/fill.test.ts` is the cases that shipped wrong once.
+The arithmetic lives in `src/lib/fill.ts` and `src/lib/episodes.ts`. `tests/fill.test.ts` is the cases that shipped wrong once; `tests/venues.test.ts` guards the registry the next venue gets wired through.
 
 ## Contributing
 
-Issues and pull requests are welcome. Please run `npm run typecheck`, `npm run lint` and `npm test` before opening a PR. Keep venue adapters limited to books that publish an unsigned public tape.
+Issues and pull requests are welcome. Run `npm run typecheck`, `npm run lint` and `npm test` before opening a PR. Keep venue adapters limited to books that publish an unsigned public tape.
 
 ## License
 
