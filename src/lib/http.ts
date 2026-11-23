@@ -2,11 +2,12 @@
  * Fetch a venue URL, from the browser if CORS allows, otherwise through our proxy.
  *
  * Hyperliquid answers `access-control-allow-origin: *`, so the visitor's own IP
- * spends the quota. Lighter and dYdX and Jupiter do the same. Pacifica and RiseX
- * do not send CORS, so a direct browser call never succeeds — it only burns a
- * failed request, then the same-origin `/api/x/{venue}` proxy. Those two go
- * through the proxy first. A 429 still waits and retries; it does not dump a
- * red banner on the first throttle.
+ * spends the quota. Lighter and dYdX and Jupiter and TxFlow and Polymarket do
+ * the same. Pacifica, RiseX and Drift do not send CORS, and Derive answers
+ * `vary: origin` without the allow header — so a direct browser call never
+ * succeeds, only burns a failed request, then the same-origin `/api/x/{venue}`
+ * proxy. Those go through the proxy first. A 429 still waits and retries; it
+ * does not dump a red banner on the first throttle.
  *
  * The proxy still shares one server IP. That is the Hyperliquid-scaling problem
  * we refuse for the book everybody actually uses. For the others it is how they
@@ -23,6 +24,9 @@ export const ORIGIN: Record<VenueId, string> = {
   drift: "https://data.velocity.exchange",
   pacifica: "https://api.pacifica.fi",
   jupiter: "https://perps-api.jup.ag",
+  txflow: "https://rpc.txflow.com",
+  polymarket: "https://api.perpetuals.polymarket.com",
+  derive: "https://api.derive.xyz",
 };
 
 /** Drift's API has moved hosts more than once. Try these in order on a miss. */
@@ -32,8 +36,13 @@ export const DRIFT_ORIGINS = [
   "https://mainnet-beta.api.drift.trade",
 ] as const;
 
-/** No CORS, or CORS that has gone missing after a host move. Do not even try the origin. */
-const PROXY_FIRST: ReadonlySet<VenueId> = new Set(["pacifica", "risex", "drift"]);
+/**
+ * No CORS, or CORS that has gone missing after a host move. Do not even try the origin.
+ * Derive answers `vary: origin` with credentials but no `access-control-allow-origin`,
+ * so a direct browser call never succeeds; its JSON-RPC body needs the POST path
+ * on the proxy below.
+ */
+const PROXY_FIRST: ReadonlySet<VenueId> = new Set(["pacifica", "risex", "drift", "derive"]);
 
 function join(origin: string, path: string): string {
   const p = path.startsWith("/") ? path : `/${path}`;

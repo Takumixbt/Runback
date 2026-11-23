@@ -31,7 +31,13 @@ export interface Leg {
   feeToken?: string;
 }
 
-function dirOf(before: number, after: number): string {
+/**
+ * The positional dir a Hyperliquid-shaped fill carries: "Open Long", "Close
+ * Short", "Long > Short". Books that only report Buy/Sell — which is most of
+ * them — derive it from the running size so `episodes` can keep spotting flips
+ * off the `>` form.
+ */
+export function dirOf(before: number, after: number): string {
   if (before > FLAT && after < -FLAT) return "Long > Short";
   if (before < -FLAT && after > FLAT) return "Short > Long";
   if (Math.abs(after) >= Math.abs(before) - FLAT) {

@@ -18,7 +18,10 @@ export type VenueId =
   | "dydx"
   | "drift"
   | "pacifica"
-  | "jupiter";
+  | "jupiter"
+  | "txflow"
+  | "polymarket"
+  | "derive";
 
 export type AddressKind = "evm" | "solana" | "dydx";
 
@@ -97,6 +100,37 @@ export const VENUES: readonly Venue[] = [
     explorer: (w) => `https://www.dydx.xyz/portfolio?address=${w}`,
     placeholder: "dydx1…",
   },
+  {
+    id: "txflow",
+    name: "TxFlow",
+    short: "TXF",
+    chain: "TxFlow L1",
+    kind: "evm",
+    /**
+     * No public per-account explorer yet; the chain's own explorer surface is
+     * still API-only. Null keeps the header honest rather than linking a 404.
+     */
+    explorer: () => null,
+    placeholder: "0x…",
+  },
+  {
+    id: "polymarket",
+    name: "Polymarket Perps",
+    short: "POLY",
+    chain: "Polygon",
+    kind: "evm",
+    explorer: (w) => `https://polymarket.com/profile/${w}`,
+    placeholder: "0x…",
+  },
+  {
+    id: "derive",
+    name: "Derive",
+    short: "DRV",
+    chain: "Derive Chain",
+    kind: "evm",
+    explorer: () => null,
+    placeholder: "0x…",
+  },
 ];
 
 export const REFERRAL: Partial<Record<VenueId, string>> = {
@@ -113,6 +147,9 @@ export const VENUE_MARK: Record<VenueId, string> = {
   pacifica: "/venues/pacifica.png",
   jupiter: "/venues/jupiter.png",
   dydx: "/venues/dydx.png",
+  txflow: "/venues/txflow.svg",
+  polymarket: "/venues/polymarket.png",
+  derive: "/venues/derive.png",
 };
 
 const VENUE_IDS: VenueId[] = VENUES.map((v) => v.id);

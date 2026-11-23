@@ -7,6 +7,9 @@ import { adapter as dydx } from "./dydx";
 import { adapter as drift } from "./drift";
 import { adapter as pacifica } from "./pacifica";
 import { adapter as jupiter } from "./jupiter";
+import { adapter as txflow } from "./txflow";
+import { adapter as polymarket } from "./polymarket";
+import { adapter as derive } from "./derive";
 
 const ALL: Record<VenueId, VenueAdapter> = {
   hyperliquid,
@@ -16,6 +19,9 @@ const ALL: Record<VenueId, VenueAdapter> = {
   drift,
   pacifica,
   jupiter,
+  txflow,
+  polymarket,
+  derive,
 };
 
 export function adapter(id: VenueId): VenueAdapter {

@@ -43,6 +43,12 @@ const FAINT = "#9aa3a48c";
  * opening a featured wallet is a couple of requests, not a fourteen-page walk.
  */
 const SINCE = 0;
+/**
+ * Pages per venue, sized to what one page holds. TxFlow carries 2,000 fills a
+ * page so one is a catalogue; Polymarket pages are 100 rows so it takes a few
+ * walks; Derive pages 1,000 rows per subaccount, and its budget is per
+ * subaccount — a wallet with several subs pays one call per idle sub.
+ */
 const PAGES: Record<VenueId, number> = {
   hyperliquid: 1,
   lighter: 3,
@@ -51,6 +57,9 @@ const PAGES: Record<VenueId, number> = {
   drift: 3,
   jupiter: 2,
   dydx: 3,
+  txflow: 1,
+  polymarket: 10,
+  derive: 2,
 };
 
 type CachedWallet = { fills: Fill[]; markets: Map<string, Market> | null; at: number };
