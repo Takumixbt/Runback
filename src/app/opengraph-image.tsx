@@ -1,6 +1,6 @@
 import { ImageResponse } from "next/og";
 
-export const alt = "Runback — run back any trade";
+export const alt = "Runback — paste a wallet, watch it trade";
 export const size = { width: 1200, height: 630 };
 export const contentType = "image/png";
 
@@ -35,6 +35,7 @@ export default function Image() {
         <div
           style={{
             display: "flex",
+            flexDirection: "column",
             marginTop: 28,
             fontSize: 72,
             lineHeight: 1.05,
@@ -44,7 +45,8 @@ export default function Image() {
             maxWidth: 900,
           }}
         >
-          Run back any trade.
+          <span>Paste a wallet.</span>
+          <span>Watch it trade.</span>
         </div>
         <div
           style={{
@@ -55,7 +57,7 @@ export default function Image() {
             maxWidth: 720,
           }}
         >
-          Paste a wallet. Watch the position. Export the clip.
+          Any perp position on ten public books. Export the clip.
         </div>
       </div>
     ),

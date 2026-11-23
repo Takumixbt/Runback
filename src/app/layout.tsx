@@ -14,7 +14,7 @@ const inter = Inter({
 });
 
 const DESCRIPTION =
-  "Run back any trade. Paste a wallet on Hyperliquid, Lighter, RiseX, Pacifica, Drift, dYdX or Jupiter. Replay a position as a clip.";
+  "Paste a wallet. Watch it trade. Replay any perp position on ten public books — no account, no API key, no signing.";
 
 export const metadata: Metadata = {
   metadataBase: siteUrl(),
@@ -23,7 +23,7 @@ export const metadata: Metadata = {
   applicationName: "Runback",
   openGraph: {
     title: "Runback",
-    description: "Run back any trade. Paste a wallet, replay a position as a clip.",
+    description: "Paste a wallet. Watch it trade. Replay any perp position as a clip.",
     type: "website",
     siteName: "Runback",
     locale: "en_US",
@@ -31,7 +31,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: "Runback",
-    description: "Run back any trade. Paste a wallet, replay a position as a clip.",
+    description: "Paste a wallet. Watch it trade. Replay any perp position as a clip.",
   },
 };
 
@@ -49,6 +49,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://api.rise.trade" />
         <link rel="preconnect" href="https://data.velocity.exchange" />
         <link rel="preconnect" href="https://api.pacifica.fi" />
+        <link rel="preconnect" href="https://rpc.txflow.com" />
+        <link rel="preconnect" href="https://api.perpetuals.polymarket.com" />
       </head>
       <body className={inter.className}>
         <MarketProvider>

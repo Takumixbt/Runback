@@ -3,7 +3,7 @@
 [![CI](https://github.com/Takumixbt/runback/actions/workflows/ci.yml/badge.svg)](https://github.com/Takumixbt/runback/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-97fce4?labelColor=0f1a1e)](LICENSE)
 
-Paste a perp wallet. Pick a position. Watch it trade, fill by fill, then export the clip.
+Paste a wallet. Watch it trade.
 
 **[Live demo](https://runbackpnl.vercel.app)** · [MIT License](LICENSE)
 
@@ -23,9 +23,12 @@ No account, no API key, no signing. If the book publishes history, you can repla
 | [Lighter](https://app.lighter.xyz) | `0x…` | Browser, CORS `*` |
 | [dYdX](https://dydx.trade) | `dydx1…` | Browser, CORS `*` |
 | [Jupiter](https://jup.ag) | Solana | Browser, CORS `*` |
+| [TxFlow](https://txflow.com) | `0x…` | Browser, CORS `*` |
+| [Polymarket Perps](https://polymarket.com/perps) | `0x…` | Browser, CORS `*` |
 | [RiseX](https://rise.trade) | `0x…` | Proxied at `/api/x/risex` |
 | [Pacifica](https://app.pacifica.fi) | Solana | Proxied at `/api/x/pacifica` |
 | [Drift](https://app.drift.trade) | Solana | Proxied at `/api/x/drift` |
+| [Derive](https://derive.xyz) | `0x…` | Proxied at `/api/x/derive` |
 
 History that has to be signed is out of reach. Hyperliquid rate-limits by IP (1,200 weight/min); those calls stay in the browser so each visitor spends their own quota.
 
