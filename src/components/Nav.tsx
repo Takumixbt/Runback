@@ -34,7 +34,7 @@ export function Nav() {
   return (
     <nav className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-white/[0.06] bg-ground/80 px-4 backdrop-blur-xl sm:px-6">
       <Link href="/" className="rb-press flex h-11 items-center gap-2.5 rounded-sm">
-        <Logo size={22} />
+        <Logo size={24} />
         <span className="text-[15px] font-medium tracking-tight text-title">Runback</span>
       </Link>
 
