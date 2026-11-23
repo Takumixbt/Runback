@@ -82,11 +82,14 @@ body {
 
 body {
   margin: 0;
-  background-image: radial-gradient(
-    1100px 520px at 50% -220px,
-    rgba(23 69 63 / 0.18),
-    transparent 62%
-  );
+  background-image:
+    radial-gradient(1100px 520px at 50% -220px, rgba(23 69 63 / 0.18), transparent 62%),
+    radial-gradient(820px 460px at 96% -60px, rgba(80 210 193 / 0.05), transparent 64%),
+    radial-gradient(rgba(255 255 255 / 0.02) 1px, transparent 1px);
+  background-size:
+    auto,
+    auto,
+    22px 22px;
   background-attachment: fixed;
 }
 
@@ -241,6 +244,89 @@ summary:focus-visible {
   );
   background-size: 200% 100%;
   animation: hl-shimmer 1.8s linear infinite;
+}
+
+/* ------------------------------------------------------------------ stage */
+
+/**
+ * The hero stage's one load sequence.
+ *
+ * Candles grow in order, the equity line draws itself, the fill arrows drop
+ * last. Nothing loops: the replay in the product moves, the poster of it should
+ * not. The global reduced-motion rule collapses every delay to nothing, which
+ * leaves a finished still — exactly the right fallback.
+ */
+@keyframes rb-candle-in {
+  from {
+    opacity: 0;
+    transform: scaleY(0.55) translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1) translateY(0);
+  }
+}
+
+@keyframes rb-line-draw {
+  from {
+    stroke-dashoffset: 1;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes rb-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes rb-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rb-candle {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: rb-candle-in 460ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.rb-eq-line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: rb-line-draw 1250ms cubic-bezier(0.4, 0, 0.2, 1) 600ms forwards;
+}
+
+.rb-stage-fade {
+  opacity: 0;
+  animation: rb-fade-in 800ms ease-out 1150ms forwards;
+}
+
+.rb-stage-marker {
+  opacity: 0;
+  animation: rb-rise-in 420ms cubic-bezier(0.2, 0, 0, 1) both;
+}
+
+.rb-stage-badge {
+  opacity: 0;
+  animation: rb-rise-in 500ms cubic-bezier(0.2, 0, 0, 1) 1700ms forwards;
+}
+
+/* The hero copy joins the stage's single load, not its own show. */
+.rb-hero {
+  opacity: 0;
+  animation: rb-rise-in 560ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 /**

@@ -1,13 +1,18 @@
 /**
  * Named wallets. The gallery is a subset; the rest still name a wallet page.
  *
- * Ten on the front page, grouped by book: four Hyperliquid, two Lighter, two
- * Pacifica, two RiseX. Every row is from a public source on that book. Hyperliquid
- * names come from the community address directory. Pacifica names are usernames
- * those accounts set on Pacifica's leaderboard. Lighter names are operators who
- * published a public pool on that book. RiseX does not publish trader names; those
- * two cards are the all-time PnL leaders on RiseX's own board, shown as truncated
- * addresses. A name is never copied onto another venue.
+ * The front page only features wallets with a real picture. Faces carry the
+ * gallery; a card with a generated stand-in reads as a placeholder next to six
+ * that do. The avatar-less rows — pool names on Lighter, accounts on Pacifica
+ * and RiseX that publish no picture — stay here so their wallet pages still
+ * print a name, they just do not take a card.
+ *
+ * Every row is from a public source on that book. Hyperliquid names come from
+ * the community address directory. Pacifica names are usernames those accounts
+ * set on Pacifica's leaderboard. Lighter names are operators who published a
+ * public pool on that book. RiseX does not publish trader names; those rows are
+ * the all-time PnL leaders on RiseX's own board, shown as truncated addresses.
+ * A name is never copied onto another venue.
  */
 import type { VenueId } from "@/lib/venue";
 
@@ -66,48 +71,42 @@ export const NOTABLE: Notable[] = [
   { ...MACHI, venue: "hyperliquid", home: true },
   { ...AGUILA, venue: "hyperliquid", home: true },
   { ...KANG, venue: "hyperliquid", home: true },
+  { ...ANSEM, venue: "hyperliquid", home: true },
+  { ...TATE, venue: "hyperliquid", home: true },
 
   {
     venue: "lighter",
     address: "0xa5Fd942D4bAdBab4FE84a9E10F565dd40d5f15Ff",
     name: "Insertive Capital",
-    home: true,
   },
   {
     venue: "lighter",
     address: "0x423c026a39FE50069f3d93a0ec2b37Bd7183a411",
     name: "Guinea Pool",
-    home: true,
   },
 
   {
     venue: "risex",
     address: "0xbe69e095e738eb7260ad795c554aba288e1f2adc",
     name: "0xbE69…2ADc",
-    home: true,
   },
   {
     venue: "risex",
     address: "0x87ff50c06ca6d01165b4f03eee552cf5e3ba7eb3",
     name: "0x87ff…7eB3",
-    home: true,
   },
 
   {
     venue: "pacifica",
     address: "9SL9PHbdixQFyMS5npowKXLdXUWwYReHKuyBrFdFCRxc",
     name: "John Locke",
-    home: true,
   },
   {
     venue: "pacifica",
     address: "5RmsTTwkXQgKcTv5BK6CZEjHQMBVLVQVt8po3h5cQabB",
     name: "monogram",
-    home: true,
   },
 
-  { ...ANSEM, venue: "hyperliquid" },
-  { ...TATE, venue: "hyperliquid" },
   {
     venue: "lighter",
     address: "0x6995743591A94894b54552eDECB57acCe8A2F19E",
