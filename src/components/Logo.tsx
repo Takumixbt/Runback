@@ -1,8 +1,7 @@
 /**
- * The app mark: a mint tile and a play glyph — the same drawing as the tab
- * icon, rendered inline so it stays crisp at any size and inherits nothing
- * from a bitmap. The wordmark beside it is plain text, so the lockup is
- * mark + type rather than an image of both.
+ * The app mark: a film loop — frame, sprocket holes, play. The same drawing as
+ * the tab icon, rendered inline so it stays crisp at any size. The frame runs
+ * near edge to edge inside the tile; the mark should read as full, not inset.
  */
 export function Logo({ size = 24 }: { size?: number }) {
   return (
@@ -13,18 +12,16 @@ export function Logo({ size = 24 }: { size?: number }) {
       className="shrink-0"
       aria-hidden
     >
-      <defs>
-        <linearGradient id="rb-logo" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#a9ffec" />
-          <stop offset="100%" stopColor="#5fdccb" />
-        </linearGradient>
-      </defs>
-      <rect width="64" height="64" rx="14" fill="url(#rb-logo)" />
+      <rect width="64" height="64" rx="15" fill="#0f1a1e" />
+      <rect x="5" y="5" width="54" height="54" rx="10" fill="none" stroke="#97fce4" strokeWidth="5" />
+      <rect x="11.5" y="15.5" width="7" height="7" rx="1.8" fill="#97fce4" />
+      <rect x="11.5" y="28.5" width="7" height="7" rx="1.8" fill="#97fce4" />
+      <rect x="11.5" y="41.5" width="7" height="7" rx="1.8" fill="#97fce4" />
       <path
-        d="M21.5 17.5 L44.5 32 L21.5 46.5 Z"
-        fill="#0f1a1e"
-        stroke="#0f1a1e"
-        strokeWidth="3"
+        d="M26.5 20.5 L47.5 32 L26.5 43.5 Z"
+        fill="#97fce4"
+        stroke="#97fce4"
+        strokeWidth="2.5"
         strokeLinejoin="round"
       />
     </svg>
