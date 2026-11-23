@@ -59,11 +59,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <Ticker />
             <div className="scrollers min-h-0 flex-1 overflow-y-auto">
               {children}
-              <footer className="mx-auto flex w-full max-w-[1120px] flex-wrap items-center justify-between gap-4 px-5 pb-10 pt-16">
-                <p className="text-mini text-faint">
-                  Ten books. No accounts. No keys.
-                </p>
-                <div className="flex items-center gap-5">
+              <footer className="mx-auto flex w-full max-w-[1120px] items-center justify-center gap-6 px-5 pb-10 pt-16">
                   <a
                     href="https://github.com/Takumixbt/runback"
                     className="inline-flex items-center gap-2 text-muted hover:text-tx"
@@ -83,7 +79,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                   >
                     MIT
                   </a>
-                </div>
               </footer>
             </div>
           </div>

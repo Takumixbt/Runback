@@ -314,7 +314,7 @@ export function WalletBrowser({
       {showForm && (
         <form onSubmit={submit} className="flex flex-col gap-5">
           <div
-            className={`flex h-12 items-center gap-3 rounded-full border bg-raise/80 pl-5 pr-1.5 backdrop-blur-sm transition-[border-color,box-shadow] duration-150 ease-[cubic-bezier(0.2,0,0,1)] focus-within:border-mint-soft/50 focus-within:shadow-[var(--glow-focus)] ${
+            className={`flex h-12 items-center gap-3 rounded-full border bg-raise/70 pl-5 pr-1.5 backdrop-blur-sm shadow-[inset_0_1px_3px_rgba(0,0,0,0.35)] transition-[border-color,box-shadow] duration-150 ease-[cubic-bezier(0.2,0,0,1)] focus-within:border-mint-soft/50 focus-within:shadow-[inset_0_1px_3px_rgba(0,0,0,0.35),var(--glow-focus)] ${
               destId ? "border-mint-soft/35" : "border-white/10 hover:border-white/18"
             }`}
           >
@@ -360,13 +360,13 @@ export function WalletBrowser({
                 type="button"
                 onClick={() => setPicked(v.id)}
                 aria-pressed={picked === v.id}
-                className={`rb-press inline-flex h-11 items-center gap-2 rounded-full px-3.5 text-mini font-medium ${
+                className={`rb-press inline-flex h-11 items-center gap-2 rounded-full px-3.5 text-mini font-medium transition-colors ${
                   picked === v.id
-                    ? "bg-mint-soft text-mint-text"
-                    : "border border-white/10 text-faint hover:border-white/18 hover:text-tx"
+                    ? "bg-mint-soft/[0.14] text-title ring-1 ring-mint-soft/45"
+                    : "bg-white/[0.02] text-muted ring-1 ring-white/[0.07] hover:bg-white/[0.04] hover:text-tx hover:ring-white/[0.15]"
                 }`}
               >
-                <VenueMark id={v.id} size={16} className={picked === v.id ? "bg-ground" : ""} />
+                <VenueMark id={v.id} size={18} />
                 {v.name}
               </button>
             ))}
@@ -449,9 +449,9 @@ function EmptyTape({
             <Link
               key={s.id}
               href={walletPath(s.id, wallet)}
-              className="rb-press inline-flex h-11 items-center gap-2 rounded-full border border-white/10 px-5 text-mini font-medium text-muted hover:border-mint-soft/40 hover:text-tx"
+              className="rb-press inline-flex h-11 items-center gap-2 rounded-full bg-white/[0.02] px-5 text-mini font-medium text-muted ring-1 ring-white/[0.07] hover:text-tx hover:ring-mint-soft/40"
             >
-              <VenueMark id={s.id} size={16} />
+              <VenueMark id={s.id} size={18} />
               Try {s.name}
             </Link>
           ))}

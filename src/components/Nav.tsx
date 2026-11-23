@@ -41,7 +41,7 @@ export function Nav() {
       {!onHome && (
         <form onSubmit={submit} className="flex min-w-0 flex-1 justify-end">
           <div
-            className={`flex h-11 w-full max-w-[440px] items-center gap-2.5 rounded-full border bg-raise/70 pl-4 pr-1 transition-[border-color,box-shadow] duration-150 ease-[cubic-bezier(0.2,0,0,1)] focus-within:border-mint-soft/50 focus-within:shadow-[var(--glow-focus)] ${
+            className={`flex h-11 w-full max-w-[440px] items-center gap-2.5 rounded-full border bg-raise/70 pl-4 pr-1 shadow-[inset_0_1px_3px_rgba(0,0,0,0.35)] transition-[border-color,box-shadow] duration-150 ease-[cubic-bezier(0.2,0,0,1)] focus-within:border-mint-soft/50 focus-within:shadow-[inset_0_1px_3px_rgba(0,0,0,0.35),var(--glow-focus)] ${
               bad ? "border-loss/60" : "border-white/10 hover:border-white/20"
             }`}
           >

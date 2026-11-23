@@ -33,7 +33,7 @@ export function TraderGallery() {
             <Link
               key={`${n.venue}-${n.address}`}
               href={walletPath(n.venue, n.address)}
-              className="rb-card rb-press group flex min-h-[76px] items-center gap-3.5 px-4 py-3.5 transition-[border-color,background-color,box-shadow] duration-200 hover:border-white/12 hover:bg-white/[0.02] hover:shadow-[0_18px_44px_-24px_#000000cc]"
+              className="rb-card rb-press group flex min-h-[76px] items-center gap-3.5 px-4 py-3.5 transition-[border-color,background-color] duration-200 hover:border-white/15 hover:bg-white/[0.03]"
             >
               <Avatar address={n.address} name={n.name} src={n.avatar} size={48} eager />
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">

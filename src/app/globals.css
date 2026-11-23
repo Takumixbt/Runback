@@ -330,16 +330,52 @@ summary:focus-visible {
 }
 
 /**
- * The one card. Tone first — a step up from the ground with a breath of light at the
- * top — and a border so quiet it only reads as an edge, never as a rule.
+ * The one card. Depth comes from light, not lines: a hairline edge, a top rim
+ * highlight, a soft inner glow falling from that edge, one contact shade and one
+ * long ambient drop. Never a bare border on a flat fill — that reads as drawn.
  */
 .rb-card {
-  border: 1px solid rgba(255 255 255 / 0.06);
+  border: 1px solid rgba(255 255 255 / 0.055);
   background:
-    linear-gradient(180deg, rgba(255 255 255 / 0.028), transparent 42%),
+    linear-gradient(180deg, rgba(255 255 255 / 0.032), rgba(255 255 255 / 0.008) 36%, transparent 100%),
     var(--color-raise);
-  box-shadow: var(--shadow-card);
+  box-shadow:
+    inset 0 1px 0 rgba(255 255 255 / 0.045),
+    inset 0 12px 24px -16px rgba(255 255 255 / 0.045),
+    0 1px 0 rgba(0 0 0 / 0.4),
+    0 24px 60px -32px rgba(0 0 0 / 0.85);
   border-radius: var(--radius-card);
+}
+
+/**
+ * The hero's focal surface: the terminal frame of shadow-3. A rim light all
+ * around, a stronger top glow, a contact shade and a deep ambient drop — it
+ * should read as one physical pane sitting above the page, not a div.
+ */
+.rb-stage {
+  border: 1px solid rgba(255 255 255 / 0.07);
+  background:
+    linear-gradient(180deg, rgba(255 255 255 / 0.05), rgba(255 255 255 / 0.012) 30%, transparent 60%),
+    linear-gradient(180deg, #17262e, #101c22 58%, #0e191f);
+  box-shadow:
+    inset 0 1px 0 rgba(255 255 255 / 0.075),
+    inset 0 14px 28px -16px rgba(255 255 255 / 0.05),
+    0 1px 0 rgba(0 0 0 / 0.55),
+    0 40px 90px -40px rgba(0 0 0 / 0.9);
+  border-radius: var(--radius-card);
+}
+
+/* The screen is a well: same darkness, recessed by shadow — never a lighter fill. */
+.rb-stage-screen {
+  background: #0b151a;
+  box-shadow:
+    inset 0 2px 8px rgba(0 0 0 / 0.5),
+    inset 0 0 0 1px rgba(0 0 0 / 0.4),
+    inset 0 -1px 0 rgba(255 255 255 / 0.03);
+}
+
+.rb-stage-in {
+  animation: rb-rise-in 640ms cubic-bezier(0.2, 0, 0, 1) both;
 }
 
 /**

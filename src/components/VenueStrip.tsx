@@ -14,14 +14,14 @@ export function VenueStrip() {
       <p className="text-mini text-faint">
         Ten books publish a public tape. This reads all of them.
       </p>
-      <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-3 px-2">
+      <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 px-2">
         {VENUES.map((v) => (
           <span
             key={v.id}
-            className="flex items-center gap-1.5 text-mini text-muted"
+            className="flex items-center gap-2 text-mini text-muted"
             title={v.chain}
           >
-            <VenueMark id={v.id} size={16} />
+            <VenueMark id={v.id} size={18} />
             {v.name}
           </span>
         ))}

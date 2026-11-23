@@ -119,7 +119,7 @@ export default async function WalletPage({
         </div>
         {siblings.length > 1 && (
           <nav
-            className="flex shrink-0 items-center gap-0.5 rounded-full border border-white/10 bg-raise/70 p-1"
+            className="flex shrink-0 items-center gap-0.5 rounded-full bg-white/[0.02] p-1 ring-1 ring-white/[0.07]"
             aria-label="Venue"
           >
             {siblings.map((s) => (
@@ -128,11 +128,13 @@ export default async function WalletPage({
                 href={walletPath(s.id, who)}
                 aria-current={s.id === v.id ? "page" : undefined}
                 title={s.name}
-                className={`rb-press flex h-11 items-center gap-1.5 rounded-full px-3 text-mini font-medium ${
-                  s.id === v.id ? "bg-mint-soft text-mint-text" : "text-faint hover:text-tx"
+                className={`rb-press flex h-11 items-center gap-1.5 rounded-full px-3 text-mini font-medium transition-colors ${
+                  s.id === v.id
+                    ? "bg-mint-soft/[0.14] text-title ring-1 ring-mint-soft/45"
+                    : "text-faint hover:text-tx"
                 }`}
               >
-                <VenueMark id={s.id} size={16} className={s.id === v.id ? "bg-ground" : ""} />
+                <VenueMark id={s.id} size={18} />
                 {s.short}
               </Link>
             ))}
